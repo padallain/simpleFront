@@ -31,7 +31,7 @@ function eliminarParada(idx) {
 
 async function makeRoute() {
   try {
-    const response = await fetch("http://localhost:8000/makeRoute", {
+    const response = await fetch("http://testingclient.onrender.com/makeRoute", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
