@@ -1,7 +1,8 @@
 <script setup>
-import { ref } from "vue";
+import { ref , onMounted} from "vue";
 
 const latitude = ref("");
+const clientCount = ref(0)
 const longitude = ref("");
 const numberInput = ref(0);
 const textInput = ref("");
@@ -9,6 +10,26 @@ const start = "08:00:00";
 const end = "17:00:00";
 const serverResponse = ref(""); // Variable para almacenar la respuesta del servidor
 const clientData = ref(null);
+
+const fetchClientCount = async () => {
+  try {
+    const response = await fetch("https://testingclient.onrender.com/countClients");
+    if (response.ok) {
+      const data = await response.json();
+      clientCount.value = data.count;
+    } else {
+      clientCount.value = 0;
+    }
+  } catch (error) {
+    clientCount.value = 0;
+  }
+};
+
+// Llama a la función al montar el componente
+onMounted(() => {
+  fetchClientCount();
+});
+
 
 const getGeolocation = () => {
   if (navigator.geolocation) {
@@ -52,6 +73,7 @@ const saveClient = async () => {
 
     if (response.ok) {
       serverResponse.value = result;
+      window.location.reload();
     } else {
       // Si el backend manda un mensaje, lo mostramos, si no, mostramos el statusText
       serverResponse.value = result?.message
@@ -88,10 +110,17 @@ const getClientAddress = async () => {
     clientData.value = { error: `Error en la solicitud: ${error.message}` };
   }
 };
+
+
+
+
+
 </script>
 
 <template>
   <div id="app">
+     <h1 class="countClient">Clientes marcados: {{ clientCount }}</h1>
+
     <h1>Geolocalización</h1>
     <div>
       <label for="latitude">Latitud:</label>
@@ -135,6 +164,10 @@ const getClientAddress = async () => {
 </template>
 
 <style scoped>
+.countClient{
+  margin-bottom: 6rem;
+}
+
 #app {
   text-align: center;
   margin-top: 2rem;
