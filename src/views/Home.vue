@@ -118,34 +118,35 @@ const getClientAddress = async () => {
 </script>
 
 <template>
-  <div id="app">
-     <h1 class="countClient">Clientes marcados: {{ clientCount }}</h1>
+  <div id="app" class="home-container">
+    <h1 class="countClient">Clientes marcados: {{ clientCount }}</h1>
 
     <h1>Geolocalización</h1>
-    <div>
+    <div class="form-group">
       <label for="latitude">Latitud:</label>
       <input id="latitude" type="text" v-model="latitude" readonly />
     </div>
-    <div>
+    <div class="form-group">
       <label for="longitude">Longitud:</label>
       <input id="longitude" type="text" v-model="longitude" readonly />
     </div>
-    <div>
+    <div class="form-group">
       <label for="numberInput">Número:</label>
       <input id="numberInput" type="number" v-model="numberInput" />
     </div>
-    <div>
+    <div class="form-group">
       <label for="textInput">Texto:</label>
       <input id="textInput" type="text" v-model="textInput" />
     </div>
-    <button @click="getGeolocation">Obtener Geolocalización</button>
-    <button @click="saveClient">Guardar Cliente</button>
-    <button @click="getClientAddress">Obtener Dirección del Cliente</button>
-     <div v-if="serverResponse" style="margin-top: 1rem; color: red">
+    <div class="button-group">
+      <button class="geo-btn" @click="getGeolocation">Obtener Geolocalización</button>
+      <button class="save-btn" @click="saveClient">Guardar Cliente</button>
+      <button class="address-btn" @click="getClientAddress">Obtener Dirección del Cliente</button>
+    </div>
+    <div v-if="serverResponse" style="margin-top: 1rem; color: red">
       <strong>Respuesta del servidor:</strong>
       <pre>{{ typeof serverResponse === 'string' ? serverResponse : JSON.stringify(serverResponse, null, 2) }}</pre>
     </div>
-
     <div v-if="clientData" style="margin-top: 1rem; color: blue">
       <strong>Datos del cliente:</strong>
       <pre>{{ typeof clientData === 'string' ? clientData : JSON.stringify(clientData, null, 2) }}</pre>
@@ -160,34 +161,88 @@ const getClientAddress = async () => {
       </div>
     </div>
   </div>
-  
 </template>
 
 <style scoped>
-.countClient{
-  margin-bottom: 6rem;
+.home-container {
+  max-width: 500px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+  text-align: center;
 }
 
-#app {
-  text-align: center;
-  margin-top: 2rem;
+.countClient {
+  margin-bottom: 2rem;
+  font-size: 1.5rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-bottom: 1rem;
 }
 
 label {
-  margin-right: 0.5rem;
+  margin-bottom: 0.3rem;
+  font-weight: 500;
+  color: #fff; /* blanco */
 }
 
 input {
-  margin-bottom: 1rem;
+  margin-bottom: 0.5rem;
   padding: 0.5rem;
-  width: 200px;
-  color: white;
+  width: 100%;
+  max-width: 300px;
+  color: #333;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #f9f9f9;
 }
 
-button {
-  padding: 0.5rem 1rem;
+.button-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+  margin-bottom: 1.5rem;
+}
+
+button,
+.geo-btn,
+.save-btn,
+.address-btn {
+  padding: 0.7rem 1.5rem;
   font-size: 1rem;
   cursor: pointer;
-  margin: 0.5rem;
+  border-radius: 8px;
+  border: none;
+  font-weight: 600;
+  background: #7c3aed; /* violeta */
+  color: #fff;         /* texto blanco */
+  transition: background 0.2s, color 0.2s;
+}
+
+button:hover,
+.geo-btn:hover,
+.save-btn:hover,
+.address-btn:hover {
+  background: #5b21b6; /* violeta oscuro */
+}
+
+@media (max-width: 600px) {
+  .home-container {
+    padding: 1rem 0.2rem;
+  }
+  .form-group {
+    max-width: 100vw;
+  }
+  input {
+    max-width: 100vw;
+  }
+  .button-group {
+    flex-direction: column;
+    gap: 0.7rem;
+  }
 }
 </style>
