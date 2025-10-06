@@ -1,10 +1,26 @@
 <script setup>
-import { ref } from "vue";
+import { ref , watch } from "vue";
 import jsPDF from "jspdf";
 
 const paradaInput = ref("");
 const paradas = ref([]);
 const serverResponse = ref(null);
+const routeTable = ref([]);
+
+watch(
+  () => serverResponse.value?.routeNames,
+  (names) => {
+    if (names && names.length) {
+      routeTable.value = names.map((name, idx) => ({
+        orden: idx + 1,
+        nombre: name,
+        novedad: "",
+      }));
+    } else {
+      routeTable.value = [];
+    }
+  }
+);
 
 function printRoutePDF() {
   if (
@@ -72,6 +88,13 @@ async function makeRoute() {
     );
     if (response.ok) {
       serverResponse.value = await response.json();
+      // Un solo log con todos los clientes y sus links
+      if (serverResponse.value.route) {
+        const resumen = serverResponse.value.route
+          .map(cliente => `${cliente.nombre}: ${cliente.googleMapsLink}`)
+          .join(" \n ");
+        console.log("Clientes y links:\n", resumen);
+      }
     } else {
       serverResponse.value = { error: "Error en el servidor" };
     }
