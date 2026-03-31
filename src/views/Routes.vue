@@ -105,16 +105,31 @@ async function makeRoute() {
 </script>
 
 <template>
-  <div>
-    <h1>Paradas</h1>
-    <el-input
-      v-model="paradaInput"
-      placeholder="Agregar parada"
-      style="width: 200px; margin-right: 8px"
-      @keyup.enter="agregarParada"
-    />
-    <el-button type="primary" @click="agregarParada">Agregar</el-button>
-    <el-table :data="paradas" style="width: 400px; margin: 2rem auto">
+  <section class="routes-page">
+    <div class="routes-shell">
+      <div class="routes-hero">
+        <div>
+          <p class="routes-kicker">Planeacion de ruta</p>
+          <h1>Paradas del chofer</h1>
+          <p class="routes-copy">Agrega clientes, genera la ruta y revisa los enlaces de navegación desde una interfaz adaptable.</p>
+        </div>
+      </div>
+
+      <div class="routes-card routes-controls">
+        <div class="input-row">
+          <el-input
+            v-model="paradaInput"
+            placeholder="Agregar parada"
+            class="route-input"
+            @keyup.enter="agregarParada"
+          />
+          <el-button type="primary" class="route-action-button" @click="agregarParada">Agregar</el-button>
+        </div>
+      </div>
+
+      <div class="routes-card">
+        <div class="table-wrapper">
+          <el-table :data="paradas" class="responsive-table">
       <el-table-column type="index" label="#" width="50" />
       <el-table-column prop="parada" label="Parada" />
       <el-table-column prop="name" label="Name" width="150" />
@@ -128,16 +143,22 @@ async function makeRoute() {
           >
         </template>
       </el-table-column>
-    </el-table>
-    <el-button type="success" @click="makeRoute" style="margin-top: 1rem"
-      >Make route</el-button
-    >
-    <div v-if="serverResponse" style="margin-top: 2rem">
-      <strong>Resumen de la ruta:</strong>
-      <el-table
-        :data="serverResponse.route"
-        style="width: 100%; margin-top: 1rem"
-      >
+          </el-table>
+        </div>
+
+        <el-button type="success" class="route-submit-button" @click="makeRoute"
+          >Make route</el-button
+        >
+      </div>
+
+      <div v-if="serverResponse" class="routes-results">
+        <div class="routes-card">
+          <strong>Resumen de la ruta:</strong>
+          <div class="table-wrapper">
+            <el-table
+              :data="serverResponse.route"
+              class="responsive-table result-table"
+            >
         <el-table-column prop="id" label="ID" width="150" />
         <el-table-column prop="nombre" label="Nombre" />
         <el-table-column label="Latitud">
@@ -160,31 +181,38 @@ async function makeRoute() {
             >
           </template>
         </el-table-column>
-      </el-table>
-      <div
-        v-if="serverResponse.notFoundIds && serverResponse.notFoundIds.length"
-        style="margin-top: 1rem"
-      >
-        <strong>IDs no encontrados:</strong>
-        <el-table
-          :data="serverResponse.notFoundIds.map((id) => ({ id }))"
-          style="width: 100%"
+            </el-table>
+          </div>
+        </div>
+
+        <div
+          v-if="serverResponse.notFoundIds && serverResponse.notFoundIds.length"
+          class="routes-card"
         >
+          <strong>IDs no encontrados:</strong>
+          <div class="table-wrapper">
+            <el-table
+              :data="serverResponse.notFoundIds.map((id) => ({ id }))"
+              class="responsive-table"
+            >
           <el-table-column prop="id" label="ID no encontrado" />
-        </el-table>
-      </div>
-      <div
-        v-if="
-          serverResponse.googleMapsRouteLinks &&
-          serverResponse.googleMapsRouteLinks.length
-        "
-        style="margin-top: 1rem"
-      >
-        <strong>Ruta en Google Maps:</strong>
-        <el-table
-          :data="serverResponse.googleMapsRouteLinks.map((link) => ({ link }))"
-          style="width: 100%"
+            </el-table>
+          </div>
+        </div>
+
+        <div
+          v-if="
+            serverResponse.googleMapsRouteLinks &&
+            serverResponse.googleMapsRouteLinks.length
+          "
+          class="routes-card"
         >
+          <strong>Ruta en Google Maps:</strong>
+          <div class="table-wrapper">
+            <el-table
+              :data="serverResponse.googleMapsRouteLinks.map((link) => ({ link }))"
+              class="responsive-table"
+            >
           <el-table-column label="Ruta">
             <template #default="scope">
               <a :href="scope.row.link" target="_blank" style="color: #16a34a"
@@ -192,34 +220,40 @@ async function makeRoute() {
               >
             </template>
           </el-table-column>
-        </el-table>
-      </div>
-      <div v-if="serverResponse.openRouteLink" style="margin-top: 1rem">
-        <strong>Ruta en OpenRouteService:</strong>
-        <a
-          :href="serverResponse.openRouteLink"
-          target="_blank"
-          style="color: #eab308"
-          >Ver en OpenRouteService</a
+            </el-table>
+          </div>
+        </div>
+
+        <div v-if="serverResponse.openRouteLink" class="routes-card link-card">
+          <strong>Ruta en OpenRouteService:</strong>
+          <a
+            :href="serverResponse.openRouteLink"
+            target="_blank"
+            class="ors-link"
+            >Ver en OpenRouteService</a
+          >
+        </div>
+
+        <div v-if="serverResponse.error" class="routes-card error-card">
+          <h3>Error:</h3>
+          <pre>{{ serverResponse.error }}</pre>
+        </div>
+
+        <div
+          v-if="serverResponse.routeNames && serverResponse.routeNames.length"
+          class="routes-card"
         >
-      </div>
-      <div v-if="serverResponse.error">
-        <h3 style="color: red">Error:</h3>
-        <pre>{{ serverResponse.error }}</pre>
-      </div>
-      <div
-        v-if="serverResponse.routeNames && serverResponse.routeNames.length"
-        style="margin-top: 2rem"
-      >
-        <strong>Tabla de paradas para el chofer:</strong>
-        <el-button
-          type="primary"
-          @click="printRoutePDF"
-          style="margin-bottom: 1rem"
-        >
-          Imprimir PDF
-        </el-button>
-        <el-table :data="routeTable" style="width: 100%; margin-top: 1rem">
+          <div class="driver-table-header">
+            <strong>Tabla de paradas para el chofer:</strong>
+            <el-button
+              type="primary"
+              @click="printRoutePDF"
+            >
+              Imprimir PDF
+            </el-button>
+          </div>
+          <div class="table-wrapper">
+            <el-table :data="routeTable" class="responsive-table result-table">
           <el-table-column prop="orden" label="Orden" width="80" />
           <el-table-column prop="nombre" label="Nombre de la parada" />
           <el-table-column label="Novedades" width="200">
@@ -230,8 +264,143 @@ async function makeRoute() {
               />
             </template>
           </el-table-column>
-        </el-table>
+            </el-table>
+          </div>
+        </div>
       </div>
     </div>
-  </div>
+  </section>
 </template>
+
+<style scoped>
+.routes-page {
+  min-height: 100vh;
+  padding: 2rem 1rem 3rem;
+  background:
+    radial-gradient(circle at top left, rgba(69, 167, 255, 0.18), transparent 32%),
+    radial-gradient(circle at top right, rgba(22, 163, 74, 0.16), transparent 26%),
+    linear-gradient(180deg, #08111f 0%, #11213d 50%, #09121f 100%);
+}
+
+.routes-shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  color: #f3f6fb;
+}
+
+.routes-hero {
+  margin-bottom: 1.5rem;
+}
+
+.routes-kicker {
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.78rem;
+  color: #9fd1ff;
+}
+
+.routes-copy {
+  max-width: 720px;
+  color: rgba(243, 246, 251, 0.76);
+}
+
+.routes-card {
+  margin-top: 1rem;
+  padding: 1.2rem;
+  border-radius: 24px;
+  background: rgba(8, 17, 31, 0.68);
+  border: 1px solid rgba(159, 209, 255, 0.14);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.2);
+}
+
+.routes-controls {
+  margin-top: 0;
+}
+
+.input-row {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.route-input {
+  flex: 1 1 auto;
+}
+
+.route-action-button,
+.route-submit-button {
+  min-height: 46px;
+}
+
+.route-submit-button {
+  margin-top: 1rem;
+}
+
+.routes-results {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  margin-top: 1rem;
+}
+
+.responsive-table {
+  min-width: 640px;
+}
+
+.result-table {
+  min-width: 760px;
+}
+
+.link-card,
+.error-card {
+  text-align: left;
+}
+
+.ors-link {
+  display: inline-flex;
+  margin-top: 0.75rem;
+  color: #f8ca5b;
+}
+
+.error-card h3,
+.error-card pre {
+  margin: 0;
+}
+
+.error-card pre {
+  margin-top: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.driver-table-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  .routes-page {
+    padding: 1rem 0.75rem 2rem;
+  }
+
+  .input-row,
+  .driver-table-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .route-action-button,
+  .route-submit-button {
+    width: 100%;
+  }
+}
+</style>

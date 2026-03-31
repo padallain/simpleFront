@@ -118,86 +118,172 @@ const getClientAddress = async () => {
 </script>
 
 <template>
-  <div id="app" class="home-container">
-    <h1 class="countClient">Clientes marcados: {{ clientCount }}</h1>
+  <section class="home-page">
+    <div class="home-container">
+      <div class="home-hero">
+        <p class="home-kicker">Registro de clientes</p>
+        <h1 class="home-title">Geolocalización y alta de clientes</h1>
+        <p class="home-subtitle">Captura ubicación, registra clientes y consulta la dirección guardada desde una sola pantalla.</p>
+      </div>
 
-    <h1>Geolocalización</h1>
-    <div class="form-group">
-      <label for="latitude">Latitud:</label>
-      <input id="latitude" type="text" v-model="latitude" readonly />
-    </div>
-    <div class="form-group">
-      <label for="longitude">Longitud:</label>
-      <input id="longitude" type="text" v-model="longitude" readonly />
-    </div>
-    <div class="form-group">
-      <label for="numberInput">Número:</label>
-      <input id="numberInput" type="number" v-model="numberInput" />
-    </div>
-    <div class="form-group">
-      <label for="textInput">Texto:</label>
-      <input id="textInput" type="text" v-model="textInput" />
-    </div>
-    <div class="button-group">
+      <div class="home-stats">
+        <div class="count-card">
+          <span class="count-label">Clientes marcados</span>
+          <strong class="countClient">{{ clientCount }}</strong>
+        </div>
+      </div>
+
+      <div class="form-card">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="latitude">Latitud:</label>
+            <input id="latitude" type="text" v-model="latitude" readonly />
+          </div>
+          <div class="form-group">
+            <label for="longitude">Longitud:</label>
+            <input id="longitude" type="text" v-model="longitude" readonly />
+          </div>
+          <div class="form-group">
+            <label for="numberInput">Número:</label>
+            <input id="numberInput" type="number" v-model="numberInput" />
+          </div>
+          <div class="form-group">
+            <label for="textInput">Texto:</label>
+            <input id="textInput" type="text" v-model="textInput" />
+          </div>
+        </div>
+
+        <div class="button-group">
       <button class="geo-btn" @click="getGeolocation">Obtener Geolocalización</button>
       <button class="save-btn" @click="saveClient">Guardar Cliente</button>
       <button class="address-btn" @click="getClientAddress">Obtener Dirección del Cliente</button>
-    </div>
-    <div v-if="serverResponse" style="margin-top: 1rem; color: red">
-      <strong>Respuesta del servidor:</strong>
-      <pre>{{ typeof serverResponse === 'string' ? serverResponse : JSON.stringify(serverResponse, null, 2) }}</pre>
-    </div>
-    <div v-if="clientData" style="margin-top: 1rem; color: blue">
-      <strong>Datos del cliente:</strong>
-      <pre>{{ typeof clientData === 'string' ? clientData : JSON.stringify(clientData, null, 2) }}</pre>
-      <div v-if="clientData.googleMapsLink" style="margin-top: 1rem">
-        <a
-          :href="clientData.googleMapsLink"
-          target="_blank"
-          style="color: #646cff"
-        >
-          Ver ubicación en Google Maps
-        </a>
+        </div>
+      </div>
+
+      <div v-if="serverResponse" class="response-card response-card-error">
+        <strong>Respuesta del servidor:</strong>
+        <pre>{{ typeof serverResponse === 'string' ? serverResponse : JSON.stringify(serverResponse, null, 2) }}</pre>
+      </div>
+
+      <div v-if="clientData" class="response-card response-card-info">
+        <strong>Datos del cliente:</strong>
+        <pre>{{ typeof clientData === 'string' ? clientData : JSON.stringify(clientData, null, 2) }}</pre>
+        <div v-if="clientData.googleMapsLink" class="maps-link-row">
+          <a
+            :href="clientData.googleMapsLink"
+            target="_blank"
+            class="maps-link"
+          >
+            Ver ubicación en Google Maps
+          </a>
+        </div>
       </div>
     </div>
-  </div>
+  </section>
 </template>
 
 <style scoped>
+.home-page {
+  min-height: 100vh;
+  padding: 2rem 1rem 3rem;
+  background:
+    radial-gradient(circle at top left, rgba(87, 140, 255, 0.18), transparent 34%),
+    radial-gradient(circle at top right, rgba(124, 58, 237, 0.16), transparent 28%),
+    linear-gradient(180deg, #0b1321 0%, #10213c 52%, #0b1321 100%);
+}
+
 .home-container {
-  max-width: 500px;
+  max-width: 960px;
   margin: 0 auto;
-  padding: 2rem 1rem;
+  padding: 0;
   text-align: center;
 }
 
+.home-hero {
+  margin-bottom: 1.5rem;
+}
+
+.home-kicker {
+  margin: 0 0 0.45rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.78rem;
+  color: #9fd1ff;
+}
+
+.home-title {
+  margin: 0;
+  color: #f3f6fb;
+  font-size: clamp(2rem, 5vw, 3.1rem);
+}
+
+.home-subtitle {
+  max-width: 720px;
+  margin: 0.9rem auto 0;
+  color: rgba(243, 246, 251, 0.76);
+}
+
+.home-stats {
+  margin-bottom: 1rem;
+}
+
+.count-card,
+.form-card,
+.response-card {
+  border-radius: 24px;
+  background: rgba(10, 20, 36, 0.7);
+  border: 1px solid rgba(159, 209, 255, 0.14);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.2);
+}
+
+.count-card {
+  padding: 1rem 1.2rem;
+}
+
+.count-label {
+  display: block;
+  color: rgba(243, 246, 251, 0.72);
+}
+
 .countClient {
-  margin-bottom: 2rem;
-  font-size: 1.5rem;
+  display: block;
+  margin-top: 0.45rem;
+  color: #f3f6fb;
+  font-size: 2rem;
+}
+
+.form-card {
+  padding: 1.2rem;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  margin-bottom: 1rem;
+  text-align: left;
 }
 
 label {
   margin-bottom: 0.3rem;
   font-weight: 500;
-  color: #fff; /* blanco */
+  color: #f3f6fb;
 }
 
 input {
-  margin-bottom: 0.5rem;
-  padding: 0.5rem;
+  padding: 0.85rem 1rem;
   width: 100%;
-  max-width: 300px;
+  max-width: none;
   color: #333;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  background: #f9f9f9;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.96);
+  box-sizing: border-box;
 }
 
 .button-group {
@@ -205,21 +291,22 @@ input {
   flex-wrap: wrap;
   gap: 1rem;
   justify-content: center;
-  margin-bottom: 1.5rem;
+  margin-top: 1.25rem;
 }
 
 button,
 .geo-btn,
 .save-btn,
 .address-btn {
-  padding: 0.7rem 1.5rem;
+  min-height: 50px;
+  padding: 0.85rem 1.4rem;
   font-size: 1rem;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: 16px;
   border: none;
   font-weight: 600;
-  background: #7c3aed; /* violeta */
-  color: #fff;         /* texto blanco */
+  background: linear-gradient(135deg, #45a7ff 0%, #0b57d0 100%);
+  color: #fff;
   transition: background 0.2s, color 0.2s;
 }
 
@@ -227,22 +314,57 @@ button:hover,
 .geo-btn:hover,
 .save-btn:hover,
 .address-btn:hover {
-  background: #5b21b6; /* violeta oscuro */
+  background: linear-gradient(135deg, #2d95f5 0%, #0a4cb8 100%);
+}
+
+.response-card {
+  margin-top: 1rem;
+  padding: 1rem 1.2rem;
+  text-align: left;
+}
+
+.response-card pre {
+  margin: 0.75rem 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+}
+
+.response-card-error {
+  color: #ffb4b4;
+}
+
+.response-card-info {
+  color: #a8d0ff;
+}
+
+.maps-link-row {
+  margin-top: 1rem;
+}
+
+.maps-link {
+  color: #8dc7ff;
 }
 
 @media (max-width: 600px) {
-  .home-container {
-    padding: 1rem 0.2rem;
+  .home-page {
+    padding: 1rem 0.75rem 2rem;
   }
-  .form-group {
-    max-width: 100vw;
+
+  .form-grid {
+    grid-template-columns: 1fr;
   }
-  input {
-    max-width: 100vw;
-  }
+
   .button-group {
     flex-direction: column;
     gap: 0.7rem;
+  }
+
+  button,
+  .geo-btn,
+  .save-btn,
+  .address-btn {
+    width: 100%;
   }
 }
 </style>
