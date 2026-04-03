@@ -14,6 +14,14 @@ function goToHome() {
 function goToDailyCheck() {
   router.push('/daily-check')
 }
+
+function goToDriverRoute() {
+  router.push('/driver-route')
+}
+
+function goToClientReport() {
+  router.push('/report-client-location')
+}
 </script>
 
 <template>
@@ -21,10 +29,16 @@ function goToDailyCheck() {
     <template v-if="route.path === '/'">
       <div class="top-nav-actions">
         <button @click="goToRoutes" class="top-nav-button">
-          Ir a Routes
+          Crear Ruta
         </button>
         <button @click="goToDailyCheck" class="top-nav-button">
           Ir al chequeo diario
+        </button>
+        <button @click="goToDriverRoute" class="top-nav-button">
+          Mi ruta
+        </button>
+        <button @click="goToClientReport" class="top-nav-button">
+          Reportar cliente
         </button>
       </div>
     </template>

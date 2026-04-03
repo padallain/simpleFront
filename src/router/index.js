@@ -6,6 +6,12 @@ import Sign from "../views/Sign.vue";
 import Login from "../views/Login.vue";
 import DailyCheck from "../views/DailyCheck.vue";
 import DailyCheckHistory from "../views/DailyCheckHistory.vue";
+import DriverRoute from "../views/DriverRoute.vue";
+import ClientCleanup from "../views/ClientCleanup.vue";
+import ReportClientLocation from "../views/ReportClientLocation.vue";
+import ClientLocationReports from "../views/ClientLocationReports.vue";
+import DispatchIssueReports from "../views/DispatchIssueReports.vue";
+import RouteDispatchIssueSummary from "../views/RouteDispatchIssueSummary.vue";
 
 
 const routes = [
@@ -16,6 +22,12 @@ const routes = [
   { path: "/login", component: Login },
   { path: "/daily-check", component: DailyCheck },
   { path: "/daily-check-history", component: DailyCheckHistory },
+  { path: "/driver-route", component: DriverRoute },
+  { path: "/driver-route/:routeId/issues-summary", component: RouteDispatchIssueSummary },
+  { path: "/report-client-location", component: ReportClientLocation },
+  { path: "/internal/dev/client-location-reports", component: ClientLocationReports },
+  { path: "/internal/dev/dispatch-issue-reports", component: DispatchIssueReports },
+  { path: "/internal/dev/client-cleanup", component: ClientCleanup },
 ];
 
 const router = createRouter({

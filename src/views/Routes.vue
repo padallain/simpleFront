@@ -1,48 +1,93 @@
 <script setup>
-import { ref , watch } from "vue";
+import { computed, ref, watch } from "vue";
 import jsPDF from "jspdf";
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
+
+const driverId = ref("");
+const driverName = ref("");
+const routeLabel = ref("");
+const routeWeight = ref(0);
 const paradaInput = ref("");
 const paradas = ref([]);
 const serverResponse = ref(null);
 const routeTable = ref([]);
+const loading = ref(false);
+const feedback = ref("");
+const errorMessage = ref("");
+
+const totalWeight = computed(() => Number(routeWeight.value) || 0);
+
+const uniqueClientCount = computed(() => {
+  const uniqueIds = new Set(
+    paradas.value
+      .map((stop) => String(stop.parada || "").trim())
+      .filter(Boolean),
+  );
+
+  return uniqueIds.size;
+});
+
+const duplicateClientIds = computed(() => {
+  const seen = new Set();
+  const duplicates = new Set();
+
+  paradas.value.forEach((stop) => {
+    const clientId = String(stop.parada || "").trim();
+
+    if (!clientId) {
+      return;
+    }
+
+    if (seen.has(clientId)) {
+      duplicates.add(clientId);
+      return;
+    }
+
+    seen.add(clientId);
+  });
+
+  return Array.from(duplicates);
+});
 
 watch(
-  () => serverResponse.value?.routeNames,
-  (names) => {
-    if (names && names.length) {
-      routeTable.value = names.map((name, idx) => ({
+  () => serverResponse.value?.route,
+  (route) => {
+    if (Array.isArray(route) && route.length) {
+      routeTable.value = route.map((stop, idx) => ({
         orden: idx + 1,
-        nombre: name,
+        nombre: stop.nombre,
         novedad: "",
       }));
-    } else {
-      routeTable.value = [];
+      return;
     }
-  }
+
+    routeTable.value = [];
+  },
+  { immediate: true },
 );
 
 function printRoutePDF() {
-  if (
-    !serverResponse.value ||
-    !serverResponse.value.routeNames ||
-    serverResponse.value.routeNames.length === 0
-  ) {
+  if (!routeTable.value.length) {
     return;
   }
+
   const doc = new jsPDF();
   doc.setFontSize(16);
   doc.text("Tabla de paradas para el chofer", 10, 10);
-
-  // Encabezados
   doc.setFontSize(12);
-  doc.text("Orden", 10, 20);
-  doc.text("Nombre de la parada", 40, 20);
+  doc.text(`Chofer ID: ${driverId.value || "Sin asignar"}`, 10, 18);
+  doc.text(`Peso total: ${totalWeight.value}`, 10, 26);
+  doc.text(`Clientes unicos: ${uniqueClientCount.value}`, 10, 34);
+  doc.text("Orden", 10, 46);
+  doc.text("Parada", 30, 46);
+  doc.text("Ruta", 120, 46);
 
-  // Filas
-  serverResponse.value.routeNames.forEach((name, idx) => {
-    doc.text(String(idx + 1), 10, 30 + idx * 10);
-    doc.text(name, 40, 30 + idx * 10);
+  routeTable.value.forEach((row, idx) => {
+    const y = 56 + idx * 10;
+    doc.text(String(row.orden), 10, y);
+    doc.text(row.nombre, 30, y);
+    doc.text(routeLabel.value || "Asignada", 120, y);
   });
 
   doc.save("paradas_chofer.pdf");
@@ -50,24 +95,30 @@ function printRoutePDF() {
 
 async function agregarParada() {
   const clientId = paradaInput.value.trim();
-  if (clientId !== "") {
-    let name = "";
-    try {
-      const response = await fetch(
-        `https://testingclient.onrender.com/getClient/${clientId}`
-      );
-      if (response.ok) {
-        const data = await response.json();
-        name = data.nombre || ""; // Ajusta según la estructura de tu backend
-      } else {
-        name = "No encontrado";
-      }
-    } catch (e) {
-      name = "Error";
-    }
-    paradas.value.push({ parada: clientId, name });
-    paradaInput.value = "";
+
+  if (!clientId) {
+    errorMessage.value = "Ingresa un ID de cliente.";
+    return;
   }
+
+  let name = "No encontrado";
+  errorMessage.value = "";
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/getClient/${clientId}`);
+    if (response.ok) {
+      const data = await response.json();
+      name = data.nombre || "Cliente";
+    }
+  } catch (_error) {
+    name = "Error consultando";
+  }
+
+  paradas.value.push({
+    parada: clientId,
+    name,
+  });
+  paradaInput.value = "";
 }
 
 function eliminarParada(idx) {
@@ -75,31 +126,47 @@ function eliminarParada(idx) {
 }
 
 async function makeRoute() {
+  if (!paradas.value.length) {
+    errorMessage.value = "Agrega al menos un cliente antes de generar la ruta.";
+    return;
+  }
+
+  loading.value = true;
+  errorMessage.value = "";
+  feedback.value = "";
+
   try {
-    const response = await fetch(
-      "https://testingclient.onrender.com/makeRoute",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ ids: paradas.value.map((p) => p.parada) }),
-      }
-    );
-    if (response.ok) {
-      serverResponse.value = await response.json();
-      // Un solo log con todos los clientes y sus links
-      if (serverResponse.value.route) {
-        const resumen = serverResponse.value.route
-          .map(cliente => `${cliente.nombre}: ${cliente.googleMapsLink}`)
-          .join(" \n ");
-        console.log("Clientes y links:\n", resumen);
-      }
-    } else {
-      serverResponse.value = { error: "Error en el servidor" };
+    const response = await fetch(`${API_BASE_URL}/makeRoute`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        driverId: driverId.value.trim(),
+        driverName: driverName.value.trim(),
+        routeLabel: routeLabel.value.trim(),
+        routeWeight: Number(routeWeight.value) || 0,
+        stops: paradas.value.map((stop) => ({ clientId: stop.parada })),
+      }),
+    });
+
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      serverResponse.value = null;
+      errorMessage.value = result?.message || "Error al crear la ruta.";
+      return;
     }
+
+    serverResponse.value = result;
+    feedback.value = result?.savedRoute?.routeId
+      ? `Ruta guardada con folio ${result.savedRoute.routeId} para el chofer ${result.savedRoute.driverId}.`
+      : "Ruta calculada correctamente. Agrega un ID de chofer para dejarla asignada y guardada.";
   } catch (error) {
-    serverResponse.value = { error: error.message };
+    serverResponse.value = null;
+    errorMessage.value = `Error en la solicitud: ${error.message}`;
+  } finally {
+    loading.value = false;
   }
 }
 </script>
@@ -111,19 +178,47 @@ async function makeRoute() {
         <div>
           <p class="routes-kicker">Planeacion de ruta</p>
           <h1>Paradas del chofer</h1>
-          <p class="routes-copy">Agrega clientes, genera la ruta y revisa los enlaces de navegación desde una interfaz adaptable.</p>
+          <p class="routes-copy">Agrega clientes con su peso, asigna la ruta a un chofer y guarda el resultado para que luego pueda consultarlo por su ID.</p>
         </div>
       </div>
 
       <div class="routes-card routes-controls">
+        <div class="input-grid input-grid-meta">
+          <div class="field-group">
+            <label for="driverId">ID del chofer</label>
+            <input id="driverId" v-model="driverId" type="text" placeholder="Ej. CH-12" />
+          </div>
+          <div class="field-group">
+            <label for="driverName">Nombre del chofer</label>
+            <input id="driverName" v-model="driverName" type="text" placeholder="Opcional" />
+          </div>
+          <div class="field-group field-group-wide">
+            <label for="routeLabel">Nombre de la ruta</label>
+            <input id="routeLabel" v-model="routeLabel" type="text" placeholder="Opcional. Si no, se genera automaticamente." />
+          </div>
+          <div class="field-group">
+            <label for="routeWeight">Peso total de la ruta</label>
+            <input id="routeWeight" v-model="routeWeight" type="number" min="0" step="0.01" placeholder="Ej. 1250" />
+          </div>
+        </div>
+
         <div class="input-row">
           <el-input
             v-model="paradaInput"
-            placeholder="Agregar parada"
+            placeholder="Agregar ID de cliente"
             class="route-input"
             @keyup.enter="agregarParada"
           />
           <el-button type="primary" class="route-action-button" @click="agregarParada">Agregar</el-button>
+        </div>
+
+        <div class="summary-strip">
+          <span><strong>Clientes unicos:</strong> {{ uniqueClientCount }}</span>
+          <span><strong>Peso total:</strong> {{ totalWeight }}</span>
+          <span><strong>Repetidos detectados:</strong> {{ duplicateClientIds.length }}</span>
+        </div>
+        <div v-if="duplicateClientIds.length" class="warning-inline">
+          IDs repetidos: {{ duplicateClientIds.join(", ") }}. Al guardar la ruta se consolidan en un solo cliente.
         </div>
       </div>
 
@@ -146,12 +241,31 @@ async function makeRoute() {
           </el-table>
         </div>
 
-        <el-button type="success" class="route-submit-button" @click="makeRoute"
-          >Make route</el-button
+        <el-button type="success" class="route-submit-button" :loading="loading" @click="makeRoute"
+          >Crear y guardar ruta</el-button
         >
       </div>
 
+      <div v-if="errorMessage" class="routes-card error-card">
+        <pre>{{ errorMessage }}</pre>
+      </div>
+
+      <div v-if="feedback" class="routes-card success-card">
+        <pre>{{ feedback }}</pre>
+      </div>
+
       <div v-if="serverResponse" class="routes-results">
+        <div class="routes-card summary-card">
+          <div class="summary-strip summary-strip-results">
+            <span><strong>Clientes unicos:</strong> {{ serverResponse.uniqueClientCount }}</span>
+            <span><strong>Peso total:</strong> {{ serverResponse.totalWeight }}</span>
+            <span><strong>Chofer:</strong> {{ serverResponse.savedRoute?.driverId || 'Sin asignar' }}</span>
+          </div>
+          <div v-if="serverResponse.duplicateClientIds?.length" class="warning-inline">
+            IDs consolidados por repeticion: {{ serverResponse.duplicateClientIds.join(", ") }}
+          </div>
+        </div>
+
         <div class="routes-card">
           <strong>Resumen de la ruta:</strong>
           <div class="table-wrapper">
@@ -186,16 +300,16 @@ async function makeRoute() {
         </div>
 
         <div
-          v-if="serverResponse.notFoundIds && serverResponse.notFoundIds.length"
+          v-if="serverResponse.notFoundClients && serverResponse.notFoundClients.length"
           class="routes-card"
         >
-          <strong>IDs no encontrados:</strong>
+          <strong>Clientes no encontrados:</strong>
           <div class="table-wrapper">
             <el-table
-              :data="serverResponse.notFoundIds.map((id) => ({ id }))"
+              :data="serverResponse.notFoundClients"
               class="responsive-table"
             >
-          <el-table-column prop="id" label="ID no encontrado" />
+          <el-table-column prop="clientId" label="ID no encontrado" />
             </el-table>
           </div>
         </div>
@@ -322,6 +436,38 @@ async function makeRoute() {
   display: flex;
   gap: 0.8rem;
   align-items: center;
+  margin-top: 1rem;
+}
+
+.input-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.input-grid-meta {
+  margin-bottom: 0.25rem;
+}
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.field-group-wide {
+  grid-column: 1 / -1;
+}
+
+.field-group input,
+.route-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.8rem 0.95rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.96);
+  color: #1f2937;
 }
 
 .route-input {
@@ -343,6 +489,26 @@ async function makeRoute() {
   margin-top: 1rem;
 }
 
+.summary-strip {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+  color: rgba(243, 246, 251, 0.88);
+}
+
+.summary-strip-results {
+  margin-top: 0;
+}
+
+.warning-inline {
+  margin-top: 0.8rem;
+  padding: 0.85rem 1rem;
+  border-radius: 16px;
+  background: rgba(248, 202, 91, 0.12);
+  color: #f8ca5b;
+}
+
 .table-wrapper {
   width: 100%;
   overflow-x: auto;
@@ -358,7 +524,8 @@ async function makeRoute() {
 }
 
 .link-card,
-.error-card {
+.error-card,
+.success-card {
   text-align: left;
 }
 
@@ -375,6 +542,13 @@ async function makeRoute() {
 
 .error-card pre {
   margin-top: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.success-card pre {
+  margin: 0;
+  color: #8df0b4;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -396,6 +570,14 @@ async function makeRoute() {
   .driver-table-header {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .input-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .field-group-wide {
+    grid-column: auto;
   }
 
   .route-action-button,

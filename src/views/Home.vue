@@ -1,5 +1,9 @@
 <script setup>
-import { ref , onMounted} from "vue";
+import { onMounted, ref } from "vue";
+import { useRoute } from "vue-router";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const route = useRoute();
 
 const latitude = ref("");
 const clientCount = ref(0)
@@ -13,7 +17,7 @@ const clientData = ref(null);
 
 const fetchClientCount = async () => {
   try {
-    const response = await fetch("https://testingclient.onrender.com/countClients");
+    const response = await fetch(`${API_BASE_URL}/countClients`);
     if (response.ok) {
       const data = await response.json();
       clientCount.value = data.count;
@@ -27,6 +31,12 @@ const fetchClientCount = async () => {
 
 // Llama a la función al montar el componente
 onMounted(() => {
+  const queryClientId = typeof route.query.clientId === "string" ? route.query.clientId.trim() : "";
+
+  if (queryClientId) {
+    numberInput.value = queryClientId;
+  }
+
   fetchClientCount();
 });
 
@@ -59,7 +69,7 @@ const saveClient = async () => {
 
   try {
     const response = await fetch(
-      "https://testingclient.onrender.com/registerClient",
+      `${API_BASE_URL}/registerClient`,
       {
         method: "POST",
         headers: {
@@ -92,7 +102,7 @@ const getClientAddress = async () => {
 
   try {
     const response = await fetch(
-      `https://testingclient.onrender.com/getClient/${clientId}`,
+      `${API_BASE_URL}/getClient/${clientId}`,
       {
         method: "GET",
       }
@@ -110,10 +120,6 @@ const getClientAddress = async () => {
     clientData.value = { error: `Error en la solicitud: ${error.message}` };
   }
 };
-
-
-
-
 
 </script>
 
@@ -144,11 +150,11 @@ const getClientAddress = async () => {
             <input id="longitude" type="text" v-model="longitude" readonly />
           </div>
           <div class="form-group">
-            <label for="numberInput">Número:</label>
+            <label for="numberInput">ID del cliente:</label>
             <input id="numberInput" type="number" v-model="numberInput" />
           </div>
           <div class="form-group">
-            <label for="textInput">Texto:</label>
+            <label for="textInput">Nombre del cliente:</label>
             <input id="textInput" type="text" v-model="textInput" />
           </div>
         </div>
