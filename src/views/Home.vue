@@ -1,9 +1,10 @@
 <script setup>
 import { onMounted, ref } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 const route = useRoute();
+const router = useRouter();
 
 const latitude = ref("");
 const clientCount = ref(0)
@@ -121,6 +122,18 @@ const getClientAddress = async () => {
   }
 };
 
+const goToClientLocationReports = () => {
+  router.push('/client-location-reports');
+};
+
+const goToRouteManagement = () => {
+  router.push('/route-management');
+};
+
+const goToDailyCheckHistory = () => {
+  router.push('/daily-check-history');
+};
+
 </script>
 
 <template>
@@ -136,6 +149,21 @@ const getClientAddress = async () => {
         <div class="count-card">
           <span class="count-label">Clientes marcados</span>
           <strong class="countClient">{{ clientCount }}</strong>
+        </div>
+        <div class="count-card shortcut-card">
+          <span class="count-label">Denuncias publicas</span>
+          <strong class="shortcut-title">Ver lista</strong>
+          <button class="shortcut-button" @click="goToClientLocationReports">Abrir denuncias</button>
+        </div>
+        <div class="count-card shortcut-card">
+          <span class="count-label">CRUD de rutas</span>
+          <strong class="shortcut-title">Administrar</strong>
+          <button class="shortcut-button" @click="goToRouteManagement">Abrir rutas</button>
+        </div>
+        <div class="count-card shortcut-card">
+          <span class="count-label">Chequeos de camiones</span>
+          <strong class="shortcut-title">Historial</strong>
+          <button class="shortcut-button" @click="goToDailyCheckHistory">Abrir historial</button>
         </div>
       </div>
 
@@ -231,6 +259,9 @@ const getClientAddress = async () => {
 
 .home-stats {
   margin-bottom: 1rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
 }
 
 .count-card,
@@ -246,6 +277,12 @@ const getClientAddress = async () => {
   padding: 1rem 1.2rem;
 }
 
+.shortcut-card {
+  display: grid;
+  gap: 0.55rem;
+  align-content: center;
+}
+
 .count-label {
   display: block;
   color: rgba(243, 246, 251, 0.72);
@@ -256,6 +293,16 @@ const getClientAddress = async () => {
   margin-top: 0.45rem;
   color: #f3f6fb;
   font-size: 2rem;
+}
+
+.shortcut-title {
+  display: block;
+  color: #f3f6fb;
+  font-size: 1.35rem;
+}
+
+.shortcut-button {
+  width: 100%;
 }
 
 .form-card {
@@ -355,6 +402,10 @@ button:hover,
 @media (max-width: 600px) {
   .home-page {
     padding: 1rem 0.75rem 2rem;
+  }
+
+  .home-stats {
+    grid-template-columns: 1fr;
   }
 
   .form-grid {

@@ -36,6 +36,11 @@
         </div>
       </form>
 
+      <div class="admin-toolbar">
+        <label for="adminKey">Clave interna</label>
+        <input id="adminKey" v-model="adminKey" type="password" placeholder="Solo necesaria para editar o borrar" />
+      </div>
+
       <div class="summary-strip">
         <div>
           <span class="summary-label">Vista actual</span>
@@ -49,11 +54,114 @@
       </div>
     </div>
 
+    <section v-if="editingReport" class="edit-panel">
+      <div class="edit-panel-header">
+        <div>
+          <p class="eyebrow">Edicion activa</p>
+          <h2>Editar daily check de {{ editingReport.placa }}</h2>
+          <p class="hero-copy compact-copy">
+            Ajusta los datos del reporte sin expandir la tarjeta. Los cambios se guardan con la clave interna.
+          </p>
+        </div>
+
+        <button class="secondary-button report-action-button" type="button" @click="cancelEdit">
+          Cerrar editor
+        </button>
+      </div>
+
+      <form class="edit-card edit-panel-card" @submit.prevent="guardarReporte(editingReport)">
+        <div class="edit-grid compact-grid">
+          <label>
+            <span>Chofer</span>
+            <input v-model="editForm.chofer" type="text" />
+          </label>
+          <label>
+            <span>Placa</span>
+            <input v-model="editForm.placa" type="text" />
+          </label>
+          <label>
+            <span>Modelo</span>
+            <input v-model="editForm.modelo" type="text" />
+          </label>
+          <label>
+            <span>Ano</span>
+            <input v-model="editForm.anio" type="number" min="1900" step="1" />
+          </label>
+          <label class="edit-full">
+            <span>Observaciones</span>
+            <textarea v-model="editForm.observaciones" rows="3" />
+          </label>
+        </div>
+
+        <div class="edit-checklist">
+          <article
+            v-for="(item, index) in editForm.checklist"
+            :key="`${editingReport._id}-edit-${index}`"
+            class="edit-check-item"
+          >
+            <div class="edit-check-header">
+              <strong>{{ item.nombre || `Item ${index + 1}` }}</strong>
+              <span :class="item.estado === 'NO_OK' ? 'status-pill status-pill-alert' : 'status-pill status-pill-ok'">
+                {{ item.estado === "NO_OK" ? "No OK" : "OK" }}
+              </span>
+            </div>
+
+            <div class="edit-grid compact-grid">
+              <label>
+                <span>Item</span>
+                <input v-model="item.nombre" type="text" />
+              </label>
+              <label>
+                <span>Estado</span>
+                <div class="status-toggle" role="radiogroup" aria-label="Estado del item">
+                  <button
+                    type="button"
+                    class="status-toggle-button"
+                    :class="item.estado === 'OK' ? 'status-toggle-button-active status-toggle-button-ok' : ''"
+                    :aria-pressed="item.estado === 'OK'"
+                    @click="item.estado = 'OK'"
+                  >
+                    OK
+                  </button>
+                  <button
+                    type="button"
+                    class="status-toggle-button"
+                    :class="item.estado === 'NO_OK' ? 'status-toggle-button-active status-toggle-button-alert' : ''"
+                    :aria-pressed="item.estado === 'NO_OK'"
+                    @click="item.estado = 'NO_OK'"
+                  >
+                    No OK
+                  </button>
+                </div>
+              </label>
+              <label class="edit-full">
+                <span>Comentario</span>
+                <textarea v-model="item.comentario" rows="2" :disabled="item.estado !== 'NO_OK'" />
+              </label>
+            </div>
+          </article>
+        </div>
+
+        <div class="report-actions">
+          <button class="secondary-button report-action-button muted-button" type="button" @click="cancelEdit">
+            Cancelar
+          </button>
+          <button class="primary-button report-action-button" type="submit" :disabled="savingReportId === editingReport._id">
+            {{ savingReportId === editingReport._id ? "Guardando..." : "Guardar cambios" }}
+          </button>
+        </div>
+      </form>
+    </section>
+
     <p v-if="errorMensaje" class="feedback error-text">
       {{ errorMensaje }}
     </p>
 
-    <p v-else-if="cargando" class="feedback">
+    <p v-if="feedbackMensaje" class="feedback success-text">
+      {{ feedbackMensaje }}
+    </p>
+
+    <p v-if="cargando" class="feedback">
       Cargando reportes...
     </p>
 
@@ -103,6 +211,20 @@
             <strong>Observaciones:</strong>
             {{ reporte.observaciones || "Sin observaciones" }}
           </p>
+
+          <div class="report-actions">
+            <button class="secondary-button report-action-button" type="button" @click="startEdit(reporte)">
+              {{ editingReportId === reporte._id ? "Editor abierto" : "Editar" }}
+            </button>
+            <button
+              class="danger-button report-action-button"
+              type="button"
+              :disabled="deletingReportId === reporte._id"
+              @click="eliminarReporte(reporte)"
+            >
+              {{ deletingReportId === reporte._id ? "Eliminando..." : "Borrar" }}
+            </button>
+          </div>
         </footer>
       </article>
     </div>
@@ -110,12 +232,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { RouterLink } from "vue-router";
 import {
   API_BASE_URL,
+  deleteDailyCheckById,
   fetchDailyChecksByPlaca,
   fetchRecentDailyChecks,
+  updateDailyCheckById,
 } from "../services/dailyCheckApi";
 
 console.log("[DailyCheckHistory] setup", {
@@ -128,12 +252,29 @@ const reportes = ref([]);
 const placaBusqueda = ref("");
 const cargando = ref(false);
 const errorMensaje = ref("");
+const feedbackMensaje = ref("");
 const modoActual = ref("recientes");
+const adminKey = ref("");
+const editingReportId = ref("");
+const savingReportId = ref("");
+const deletingReportId = ref("");
+const editForm = reactive({
+  chofer: "",
+  placa: "",
+  modelo: "",
+  anio: "",
+  observaciones: "",
+  checklist: [],
+});
 
 const tituloListado = computed(() =>
   modoActual.value === "placa" && placaBusqueda.value.trim()
     ? `Resultados para ${placaBusqueda.value.trim().toUpperCase()}`
     : "Ultimos 20 reportes",
+);
+
+const editingReport = computed(() =>
+  reportes.value.find((reporte) => reporte._id === editingReportId.value) || null,
 );
 
 function normalizarReporte(reporte) {
@@ -145,6 +286,14 @@ function normalizarReporte(reporte) {
       reporte?.createdAt ||
       reporte?.updatedAt ||
       null,
+  };
+}
+
+function crearChecklistItem(item = {}) {
+  return {
+    nombre: String(item.nombre || ""),
+    estado: item.estado === "NO_OK" ? "NO_OK" : "OK",
+    comentario: String(item.comentario || ""),
   };
 }
 
@@ -183,26 +332,70 @@ function formatearHora(valor) {
   }).format(fecha);
 }
 
+function startEdit(reporte) {
+  editingReportId.value = String(reporte?._id || "");
+  editForm.chofer = String(reporte?.chofer || "");
+  editForm.placa = String(reporte?.placa || "");
+  editForm.modelo = String(reporte?.modelo || "");
+  editForm.anio = String(reporte?.anio || "");
+  editForm.observaciones = String(reporte?.observaciones || "");
+  editForm.checklist = Array.isArray(reporte?.checklist) && reporte.checklist.length
+    ? reporte.checklist.map((item) => crearChecklistItem(item))
+    : [];
+  errorMensaje.value = "";
+  feedbackMensaje.value = "";
+}
+
+function cancelEdit() {
+  editingReportId.value = "";
+  editForm.chofer = "";
+  editForm.placa = "";
+  editForm.modelo = "";
+  editForm.anio = "";
+  editForm.observaciones = "";
+  editForm.checklist = [];
+}
+
+function validarEditForm() {
+  if (!editForm.chofer.trim() || !editForm.placa.trim() || !editForm.modelo.trim() || !String(editForm.anio).trim()) {
+    return "Chofer, placa, modelo y ano son obligatorios.";
+  }
+
+  if (!Array.isArray(editForm.checklist) || !editForm.checklist.length) {
+    return "El checklist no puede quedar vacio.";
+  }
+
+  const invalidItem = editForm.checklist.find((item) => {
+    if (!item.nombre.trim()) {
+      return true;
+    }
+
+    if (!["OK", "NO_OK"].includes(item.estado)) {
+      return true;
+    }
+
+    return item.estado === "NO_OK" && !item.comentario.trim();
+  });
+
+  if (invalidItem) {
+    return "Cada item debe tener nombre, estado valido y comentario si esta en No OK.";
+  }
+
+  return "";
+}
+
 async function cargarRecientes() {
   cargando.value = true;
   errorMensaje.value = "";
+  feedbackMensaje.value = "";
   modoActual.value = "recientes";
-
-  console.log("[DailyCheckHistory] cargarRecientes:start", {
-    apiBaseUrl: API_BASE_URL,
-  });
 
   try {
     const result = await fetchRecentDailyChecks(20);
     reportes.value = (result?.reportes || []).map(normalizarReporte);
-    console.log("[DailyCheckHistory] cargarRecientes:success", {
-      total: reportes.value.length,
-    });
-    console.log("[DailyCheckHistory] cargarRecientes:data", reportes.value);
   } catch (error) {
     reportes.value = [];
     errorMensaje.value = error.message;
-    console.error("[DailyCheckHistory] cargarRecientes:error", error);
   } finally {
     cargando.value = false;
   }
@@ -211,40 +404,120 @@ async function cargarRecientes() {
 async function buscarPorPlaca() {
   const placa = placaBusqueda.value.trim().toUpperCase();
 
-  console.log("[DailyCheckHistory] buscarPorPlaca:start", {
-    placaIngresada: placaBusqueda.value,
-    placaNormalizada: placa,
-  });
-
   if (!placa) {
-    cargarRecientes();
+    await cargarRecientes();
     return;
   }
 
   cargando.value = true;
   errorMensaje.value = "";
+  feedbackMensaje.value = "";
   modoActual.value = "placa";
 
   try {
     const result = await fetchDailyChecksByPlaca(placa);
     reportes.value = (result?.reportes || []).map(normalizarReporte);
     placaBusqueda.value = placa;
-    console.log("[DailyCheckHistory] buscarPorPlaca:success", {
-      placa,
-      total: reportes.value.length,
-    });
-    console.log("[DailyCheckHistory] buscarPorPlaca:data", reportes.value);
   } catch (error) {
     reportes.value = [];
     errorMensaje.value = error.message;
-    console.error("[DailyCheckHistory] buscarPorPlaca:error", error);
   } finally {
     cargando.value = false;
   }
 }
 
+async function guardarReporte(reporte) {
+  const reporteId = String(reporte?._id || "");
+
+  if (!reporteId) {
+    errorMensaje.value = "El reporte no tiene un identificador valido.";
+    return;
+  }
+
+  if (!adminKey.value.trim()) {
+    errorMensaje.value = "Ingresa la clave interna para editar.";
+    return;
+  }
+
+  const validationError = validarEditForm();
+
+  if (validationError) {
+    errorMensaje.value = validationError;
+    return;
+  }
+
+  savingReportId.value = reporteId;
+  errorMensaje.value = "";
+  feedbackMensaje.value = "";
+
+  try {
+    const result = await updateDailyCheckById(
+      reporteId,
+      {
+        chofer: editForm.chofer.trim(),
+        placa: editForm.placa.trim(),
+        modelo: editForm.modelo.trim(),
+        anio: Number(editForm.anio),
+        observaciones: editForm.observaciones.trim(),
+        checklist: editForm.checklist.map((item) => ({
+          nombre: item.nombre.trim(),
+          estado: item.estado,
+          comentario: item.comentario.trim(),
+        })),
+      },
+      adminKey.value.trim(),
+    );
+
+    const normalized = normalizarReporte(result?.dailyCheck || result);
+    reportes.value = reportes.value.map((current) => current._id === reporteId ? normalized : current);
+    feedbackMensaje.value = `Reporte ${reporteId} actualizado correctamente.`;
+    cancelEdit();
+  } catch (error) {
+    errorMensaje.value = error.message;
+  } finally {
+    savingReportId.value = "";
+  }
+}
+
+async function eliminarReporte(reporte) {
+  const reporteId = String(reporte?._id || "");
+
+  if (!reporteId) {
+    errorMensaje.value = "El reporte no tiene un identificador valido.";
+    return;
+  }
+
+  if (!adminKey.value.trim()) {
+    errorMensaje.value = "Ingresa la clave interna para borrar.";
+    return;
+  }
+
+  const confirmed = window.confirm(`Se eliminara el daily check ${reporteId}. Deseas continuar?`);
+
+  if (!confirmed) {
+    return;
+  }
+
+  deletingReportId.value = reporteId;
+  errorMensaje.value = "";
+  feedbackMensaje.value = "";
+
+  try {
+    await deleteDailyCheckById(reporteId, adminKey.value.trim());
+    reportes.value = reportes.value.filter((current) => current._id !== reporteId);
+    feedbackMensaje.value = `Reporte ${reporteId} eliminado correctamente.`;
+
+    if (editingReportId.value === reporteId) {
+      cancelEdit();
+    }
+  } catch (error) {
+    errorMensaje.value = error.message;
+  } finally {
+    deletingReportId.value = "";
+  }
+}
+
 onMounted(() => {
-  console.log("[DailyCheckHistory] mounted");
   cargarRecientes();
 });
 </script>
@@ -320,12 +593,14 @@ h1 {
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.22);
 }
 
-.search-form {
+.search-form,
+.admin-toolbar {
   display: grid;
   gap: 0.8rem;
 }
 
 .search-form label,
+.admin-toolbar label,
 .summary-label {
   color: rgba(243, 246, 251, 0.7);
 }
@@ -336,8 +611,8 @@ h1 {
   flex-wrap: wrap;
 }
 
-.search-row input {
-  flex: 1 1 260px;
+.search-row input,
+.admin-toolbar input {
   min-height: 48px;
   padding: 0.85rem 1rem;
   border-radius: 16px;
@@ -346,25 +621,40 @@ h1 {
   color: #f3f6fb;
 }
 
-.search-row button {
+.search-row input {
+  flex: 1 1 260px;
+}
+
+.search-row button,
+.report-action-button {
   min-height: 48px;
   padding: 0.85rem 1.25rem;
   border: none;
   border-radius: 16px;
-  background: linear-gradient(135deg, #45a7ff 0%, #0b57d0 100%);
   color: white;
   font-weight: 700;
   cursor: pointer;
 }
 
-.search-row button:disabled {
+.search-row button:disabled,
+.report-action-button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
 
-.search-row .secondary-button {
+.primary-button,
+.search-row button {
+  background: linear-gradient(135deg, #45a7ff 0%, #0b57d0 100%);
+}
+
+.secondary-button,
+.muted-button {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.danger-button {
+  background: linear-gradient(135deg, #ff8b66 0%, #d9485f 100%);
 }
 
 .summary-strip {
@@ -392,8 +682,34 @@ h1 {
   color: rgba(243, 246, 251, 0.82);
 }
 
+.edit-panel {
+  max-width: 1180px;
+  margin: 1.25rem auto 0;
+  padding: 1.2rem;
+  border-radius: 24px;
+  background: rgba(7, 17, 31, 0.72);
+  border: 1px solid rgba(69, 167, 255, 0.22);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.2);
+}
+
+.edit-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.compact-copy {
+  margin-bottom: 0;
+}
+
 .error-text {
   color: #ff9f9f;
+}
+
+.success-text {
+  color: #8df0b4;
 }
 
 .reports-grid {
@@ -447,19 +763,22 @@ h1 {
   color: rgba(243, 246, 251, 0.58);
 }
 
-.report-meta {
+.report-meta,
+.report-actions {
   display: flex;
   gap: 1rem;
   flex-wrap: wrap;
   color: rgba(243, 246, 251, 0.82);
 }
 
-.checklist-section {
+.checklist-section,
+.edit-checklist {
   display: grid;
   gap: 0.7rem;
 }
 
-.check-item {
+.check-item,
+.edit-check-item {
   padding: 0.85rem 0.95rem;
   border-radius: 16px;
 }
@@ -472,6 +791,19 @@ h1 {
 .check-item-alert {
   background: rgba(255, 117, 102, 0.12);
   border: 1px solid rgba(255, 117, 102, 0.26);
+}
+
+.edit-check-item {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.edit-check-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.8rem;
 }
 
 .check-item-head {
@@ -489,10 +821,102 @@ h1 {
   font-weight: 700;
 }
 
+.status-pill-ok {
+  background: rgba(42, 181, 125, 0.16);
+  color: #9bf0c4;
+}
+
+.status-pill-alert {
+  background: rgba(255, 117, 102, 0.18);
+  color: #ffb7ad;
+}
+
 .check-comment,
 .report-footer p {
   margin: 0.55rem 0 0;
   color: rgba(243, 246, 251, 0.8);
+}
+
+.edit-card {
+  display: grid;
+  gap: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.edit-panel-card {
+  padding-top: 0;
+  border-top: none;
+}
+
+.edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.compact-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.edit-grid label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.edit-grid span {
+  color: rgba(243, 246, 251, 0.7);
+}
+
+.edit-grid input,
+.edit-grid textarea {
+  min-height: 44px;
+  padding: 0.8rem 0.9rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f3f6fb;
+}
+
+.status-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.status-toggle-button {
+  min-height: 46px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(243, 246, 251, 0.78);
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.status-toggle-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.status-toggle-button-active {
+  color: #f3f6fb;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.status-toggle-button-ok {
+  background: linear-gradient(135deg, rgba(42, 181, 125, 0.32), rgba(42, 181, 125, 0.14));
+  border-color: rgba(42, 181, 125, 0.5);
+}
+
+.status-toggle-button-alert {
+  background: linear-gradient(135deg, rgba(255, 117, 102, 0.32), rgba(255, 117, 102, 0.14));
+  border-color: rgba(255, 117, 102, 0.55);
+}
+
+.edit-full {
+  grid-column: 1 / -1;
 }
 
 @media (max-width: 720px) {
@@ -501,7 +925,9 @@ h1 {
   }
 
   .hero-panel,
-  .report-header {
+  .edit-panel-header,
+  .report-header,
+  .report-actions {
     flex-direction: column;
   }
 
@@ -515,8 +941,14 @@ h1 {
 
   .search-row button,
   .search-row input,
-  .back-link {
+  .admin-toolbar input,
+  .back-link,
+  .report-action-button {
     width: 100%;
+  }
+
+  .edit-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

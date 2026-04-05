@@ -12,6 +12,7 @@ import ReportClientLocation from "../views/ReportClientLocation.vue";
 import ClientLocationReports from "../views/ClientLocationReports.vue";
 import DispatchIssueReports from "../views/DispatchIssueReports.vue";
 import RouteDispatchIssueSummary from "../views/RouteDispatchIssueSummary.vue";
+import RouteManagement from "../views/RouteManagement.vue";
 
 
 const routes = [
@@ -25,6 +26,8 @@ const routes = [
   { path: "/driver-route", component: DriverRoute },
   { path: "/driver-route/:routeId/issues-summary", component: RouteDispatchIssueSummary },
   { path: "/report-client-location", component: ReportClientLocation },
+  { path: "/route-management", component: RouteManagement },
+  { path: "/client-location-reports", component: ClientLocationReports },
   { path: "/internal/dev/client-location-reports", component: ClientLocationReports },
   { path: "/internal/dev/dispatch-issue-reports", component: DispatchIssueReports },
   { path: "/internal/dev/client-cleanup", component: ClientCleanup },

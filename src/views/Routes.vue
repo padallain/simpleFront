@@ -162,6 +162,7 @@ async function makeRoute() {
     feedback.value = result?.savedRoute?.routeId
       ? `Ruta guardada con folio ${result.savedRoute.routeId} para el chofer ${result.savedRoute.driverId}.`
       : "Ruta calculada correctamente. Agrega un ID de chofer para dejarla asignada y guardada.";
+
   } catch (error) {
     serverResponse.value = null;
     errorMessage.value = `Error en la solicitud: ${error.message}`;
@@ -509,6 +510,7 @@ async function makeRoute() {
   color: #f8ca5b;
 }
 
+
 .table-wrapper {
   width: 100%;
   overflow-x: auto;
@@ -560,6 +562,7 @@ async function makeRoute() {
   align-items: center;
   flex-wrap: wrap;
 }
+
 
 @media (max-width: 720px) {
   .routes-page {

@@ -22,6 +22,10 @@ function goToDriverRoute() {
 function goToClientReport() {
   router.push('/report-client-location')
 }
+
+function goToClientLocationReports() {
+  router.push('/client-location-reports')
+}
 </script>
 
 <template>
@@ -39,6 +43,9 @@ function goToClientReport() {
         </button>
         <button @click="goToClientReport" class="top-nav-button">
           Reportar cliente
+        </button>
+        <button @click="goToClientLocationReports" class="top-nav-button">
+          Ver denuncias
         </button>
       </div>
     </template>

@@ -28,21 +28,12 @@ function formatDate(value) {
 }
 
 async function loadReports() {
-  if (!canLoad.value) {
-    errorMessage.value = "Ingresa la clave de administrador.";
-    return;
-  }
-
   loading.value = true;
   errorMessage.value = "";
   feedback.value = "";
 
   try {
-    const response = await fetch(`${API_BASE_URL}/internal/admin/clientLocationReports`, {
-      headers: {
-        "x-admin-delete-key": adminKey.value.trim(),
-      },
-    });
+    const response = await fetch(`${API_BASE_URL}/clientLocationReports`);
 
     const result = await response.json().catch(() => null);
 
@@ -53,6 +44,9 @@ async function loadReports() {
     }
 
     reports.value = Array.isArray(result?.reports) ? result.reports : [];
+    feedback.value = reports.value.length
+      ? `Se cargaron ${reports.value.length} denuncias.`
+      : "No hay denuncias registradas por ahora.";
   } catch (error) {
     reports.value = [];
     errorMessage.value = `Error cargando denuncias: ${error.message}`;
@@ -174,21 +168,21 @@ async function deleteReport(report) {
   <section class="reports-page">
     <div class="reports-shell">
       <div class="reports-hero">
-        <p class="reports-kicker">Ruta interna</p>
+        <p class="reports-kicker">Denuncias publicas</p>
         <h1>Lista de denuncias</h1>
         <p class="reports-copy">
-          Esta vista es para desarrollo. Carga todas las denuncias guardadas en Mongo para que luego decidas si borras el cliente manualmente.
+          Esta vista puede consultarse sin clave. La clave interna solo se usa para borrar clientes o eliminar denuncias.
         </p>
       </div>
 
       <div class="reports-card">
         <div class="field-group">
           <label for="adminKey">Clave de administrador</label>
-          <input id="adminKey" v-model="adminKey" type="password" placeholder="Ingresa la clave interna" />
+          <input id="adminKey" v-model="adminKey" type="password" placeholder="Solo necesaria para eliminar" />
         </div>
 
         <div class="reports-actions">
-          <button class="primary-button" :disabled="loading || !canLoad" @click="loadReports">
+          <button class="primary-button" :disabled="loading" @click="loadReports">
             {{ loading ? "Cargando..." : "Ver denuncias" }}
           </button>
         </div>

@@ -84,4 +84,28 @@ export async function fetchDailyChecksByPlaca(placa) {
   return parseResponse(response, "No se pudieron cargar los reportes por placa");
 }
 
+export async function updateDailyCheckById(id, payload, adminKey) {
+  const response = await requestWithFallback(`/internal/admin/dailyCheck/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "x-admin-delete-key": adminKey,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseResponse(response, "No se pudo actualizar el reporte diario");
+}
+
+export async function deleteDailyCheckById(id, adminKey) {
+  const response = await requestWithFallback(`/internal/admin/dailyCheck/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: {
+      "x-admin-delete-key": adminKey,
+    },
+  });
+
+  return parseResponse(response, "No se pudo eliminar el reporte diario");
+}
+
 export { configuredApiBaseUrl as API_BASE_URL, fallbackApiBaseUrl as DAILY_CHECK_LOCAL_API_BASE_URL };
