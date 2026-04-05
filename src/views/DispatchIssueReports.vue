@@ -608,13 +608,31 @@ async function deleteReport(report) {
   color: #8df0b4;
 }
 
-@media (max-width: 640px) {
-  .reports-page {
-    padding: 1rem 0.75rem 2rem;
+@media (max-width: 900px) {
+  .report-item-header,
+  .report-meta,
+  .reports-actions,
+  .report-actions-row,
+  .item-head {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .edit-grid {
     grid-template-columns: 1fr;
+  }
+
+  .primary-button,
+  .secondary-button,
+  .danger-button,
+  .ghost-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .reports-page {
+    padding: 1rem 0.75rem 2rem;
   }
 }
 </style>

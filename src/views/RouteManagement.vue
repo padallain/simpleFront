@@ -507,13 +507,11 @@ async function deleteRoute(route) {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-@media (max-width: 720px) {
-  .routes-page {
-    padding: 1rem 0.75rem 2rem;
-  }
-
+@media (max-width: 960px) {
   .driver-table-header,
-  .saved-route-actions {
+  .saved-route-actions,
+  .summary-strip,
+  .saved-route-header {
     flex-direction: column;
     align-items: stretch;
   }
@@ -530,6 +528,12 @@ async function deleteRoute(route) {
   .route-secondary-button,
   .route-danger-button {
     width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .routes-page {
+    padding: 1rem 0.75rem 2rem;
   }
 }
 </style>

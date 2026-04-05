@@ -7,12 +7,15 @@ const router = useRouter();
 
 const driverId = ref("");
 const routeData = ref(null);
+const assignedRoutes = ref([]);
 const loading = ref(false);
 const errorMessage = ref("");
 const feedback = ref("");
 const updatingKey = ref("");
 const openIssueForms = reactive({});
 const issueForms = reactive({});
+
+const activeRouteCount = computed(() => assignedRoutes.value.filter((route) => route?.status === "active").length);
 
 const dispatchedCount = computed(() =>
   Array.isArray(routeData.value?.stops)
@@ -27,6 +30,50 @@ function createIssueItem() {
     presentationType: "unidad",
     quantity: 1,
   };
+}
+
+function resetRouteUiState() {
+  Object.keys(openIssueForms).forEach((key) => {
+    delete openIssueForms[key];
+  });
+  Object.keys(issueForms).forEach((key) => {
+    delete issueForms[key];
+  });
+}
+
+function selectRoute(routeId) {
+  const nextRoute = assignedRoutes.value.find((route) => String(route?._id) === String(routeId));
+
+  if (!nextRoute) {
+    return;
+  }
+
+  routeData.value = nextRoute;
+  resetRouteUiState();
+}
+
+function syncRouteCollection(updatedRoute) {
+  const normalizedRouteId = String(updatedRoute?._id || "");
+
+  if (!normalizedRouteId) {
+    return;
+  }
+
+  const nextRoutes = assignedRoutes.value.some((route) => String(route?._id) === normalizedRouteId)
+    ? assignedRoutes.value.map((route) => (String(route?._id) === normalizedRouteId ? updatedRoute : route))
+    : [updatedRoute, ...assignedRoutes.value];
+
+  const activeRoutes = nextRoutes.filter((route) => route?.status === "active");
+  assignedRoutes.value = activeRoutes.length > 0 ? activeRoutes : nextRoutes;
+
+  if (updatedRoute.status === "active") {
+    routeData.value = updatedRoute;
+    return;
+  }
+
+  const fallbackRoute = assignedRoutes.value.find((route) => route?.status === "active") || updatedRoute;
+  routeData.value = fallbackRoute;
+  resetRouteUiState();
 }
 
 function getStopKey(stop) {
@@ -128,19 +175,21 @@ async function loadDriverRoute() {
 
     if (!response.ok) {
       routeData.value = null;
+      assignedRoutes.value = [];
       errorMessage.value = result?.message || "No se pudo cargar la ruta del chofer.";
       return;
     }
 
-    routeData.value = result?.route || null;
-    Object.keys(openIssueForms).forEach((key) => {
-      delete openIssueForms[key];
-    });
-    Object.keys(issueForms).forEach((key) => {
-      delete issueForms[key];
-    });
+    assignedRoutes.value = Array.isArray(result?.routes)
+      ? result.routes
+      : result?.route
+        ? [result.route]
+        : [];
+    routeData.value = result?.route || assignedRoutes.value[0] || null;
+    resetRouteUiState();
   } catch (error) {
     routeData.value = null;
+    assignedRoutes.value = [];
     errorMessage.value = `Error cargando ruta: ${error.message}`;
   } finally {
     loading.value = false;
@@ -171,7 +220,7 @@ async function updateDispatch(stop, dispatched) {
       return;
     }
 
-    routeData.value = result?.route || routeData.value;
+    syncRouteCollection(result?.route || routeData.value);
     feedback.value = dispatched
       ? `Cliente ${stop.clientId} marcado como despachado.`
       : `Cliente ${stop.clientId} marcado como pendiente.`;
@@ -206,7 +255,7 @@ async function resolveMissingClient(item, resolved) {
       return;
     }
 
-    routeData.value = result?.route || routeData.value;
+    syncRouteCollection(result?.route || routeData.value);
     feedback.value = resolved
       ? `Cliente no encontrado ${item.clientId} marcado como resuelto.`
       : `Cliente no encontrado ${item.clientId} marcado como pendiente.`;
@@ -327,6 +376,31 @@ async function submitDispatchIssue(stop) {
       <div v-if="feedback" class="driver-card feedback-success">{{ feedback }}</div>
 
       <div v-if="routeData" class="driver-results">
+        <div v-if="assignedRoutes.length > 1" class="driver-card route-switcher-card">
+          <div class="section-heading">
+            <strong>Rutas pendientes de este chofer</strong>
+            <span>{{ activeRouteCount }} rutas activas disponibles</span>
+          </div>
+
+          <div class="route-switcher-grid">
+            <button
+              v-for="route in assignedRoutes"
+              :key="route._id"
+              type="button"
+              class="route-switcher-item"
+              :class="String(routeData?._id) === String(route._id) ? 'route-switcher-item-active' : ''"
+              @click="selectRoute(route._id)"
+            >
+              <strong>{{ route.routeLabel }}</strong>
+              <span>{{ route.driverName || route.driverId }}</span>
+              <span>
+                {{ Array.isArray(route.stops) ? route.stops.filter((stop) => stop.dispatched).length : 0 }} /
+                {{ Array.isArray(route.stops) ? route.stops.length : 0 }} despachados
+              </span>
+            </button>
+          </div>
+        </div>
+
         <div class="driver-card summary-card">
           <div class="summary-header">
             <div class="summary-grid">
@@ -591,6 +665,34 @@ async function submitDispatchIssue(stop) {
   gap: 1rem;
 }
 
+.route-switcher-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem;
+}
+
+.route-switcher-item {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.95rem;
+  text-align: left;
+  border-radius: 18px;
+  border: 1px solid rgba(159, 209, 255, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f3f6fb;
+  cursor: pointer;
+}
+
+.route-switcher-item span {
+  color: rgba(243, 246, 251, 0.74);
+}
+
+.route-switcher-item-active {
+  border-color: rgba(255, 213, 154, 0.48);
+  background: rgba(255, 213, 154, 0.12);
+  box-shadow: 0 0 0 1px rgba(255, 213, 154, 0.18) inset;
+}
+
 .missing-card {
   border-color: rgba(248, 202, 91, 0.26);
   background: rgba(70, 52, 11, 0.22);
@@ -722,22 +824,39 @@ async function submitDispatchIssue(stop) {
   color: #8df0b4;
 }
 
+@media (max-width: 960px) {
+  .summary-header,
+  .stop-main,
+  .missing-actions,
+  .stop-actions,
+  .issue-actions,
+  .section-heading {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .route-switcher-grid,
+  .issue-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .driver-button,
+  .secondary-button,
+  .ghost-button,
+  .stop-actions a {
+    width: 100%;
+    text-align: center;
+  }
+}
+
 @media (max-width: 720px) {
   .driver-page {
     padding: 1rem 0.75rem 2rem;
   }
 
-  .stop-main,
   .driver-search-row,
-  .summary-header,
-  .section-heading,
-  .issue-actions {
+  .route-switcher-grid {
     flex-direction: column;
-    align-items: stretch;
-  }
-
-  .issue-grid {
-    grid-template-columns: 1fr;
   }
 }
 </style>

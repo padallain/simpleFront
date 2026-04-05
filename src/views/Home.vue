@@ -134,6 +134,10 @@ const goToDailyCheckHistory = () => {
   router.push('/daily-check-history');
 };
 
+const goToDispatchStatus = () => {
+  router.push('/dispatch-status');
+};
+
 </script>
 
 <template>
@@ -164,6 +168,11 @@ const goToDailyCheckHistory = () => {
           <span class="count-label">Chequeos de camiones</span>
           <strong class="shortcut-title">Historial</strong>
           <button class="shortcut-button" @click="goToDailyCheckHistory">Abrir historial</button>
+        </div>
+        <div class="count-card shortcut-card">
+          <span class="count-label">Despachos</span>
+          <strong class="shortcut-title">Estatus</strong>
+          <button class="shortcut-button" @click="goToDispatchStatus">Ver rutas</button>
         </div>
       </div>
 
@@ -260,7 +269,7 @@ const goToDailyCheckHistory = () => {
 .home-stats {
   margin-bottom: 1rem;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 1rem;
 }
 

@@ -433,6 +433,10 @@ async function makeRoute() {
   margin-top: 0;
 }
 
+.routes-card {
+  overflow: hidden;
+}
+
 .input-row {
   display: flex;
   gap: 0.8rem;
@@ -515,14 +519,16 @@ async function makeRoute() {
   width: 100%;
   overflow-x: auto;
   margin-top: 1rem;
+  padding-bottom: 0.25rem;
+  -webkit-overflow-scrolling: touch;
 }
 
 .responsive-table {
-  min-width: 640px;
+  min-width: 560px;
 }
 
 .result-table {
-  min-width: 760px;
+  min-width: 680px;
 }
 
 .link-card,
@@ -564,13 +570,10 @@ async function makeRoute() {
 }
 
 
-@media (max-width: 720px) {
-  .routes-page {
-    padding: 1rem 0.75rem 2rem;
-  }
-
+@media (max-width: 960px) {
   .input-row,
-  .driver-table-header {
+  .driver-table-header,
+  .summary-strip {
     flex-direction: column;
     align-items: stretch;
   }
@@ -586,6 +589,20 @@ async function makeRoute() {
   .route-action-button,
   .route-submit-button {
     width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .routes-page {
+    padding: 1rem 0.75rem 2rem;
+  }
+
+  .responsive-table {
+    min-width: 520px;
+  }
+
+  .result-table {
+    min-width: 620px;
   }
 }
 </style>

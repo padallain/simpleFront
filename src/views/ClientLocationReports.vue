@@ -454,19 +454,25 @@ pre {
   word-break: break-word;
 }
 
-@media (max-width: 640px) {
-  .reports-page {
-    padding: 1rem 0.75rem 2rem;
-  }
-
+@media (max-width: 900px) {
+  .reports-actions,
+  .report-item-header,
+  .report-meta,
   .report-actions-row {
     flex-direction: column;
+    align-items: stretch;
   }
 
   .primary-button,
   .danger-button,
   .ghost-danger-button {
     width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .reports-page {
+    padding: 1rem 0.75rem 2rem;
   }
 }
 </style>

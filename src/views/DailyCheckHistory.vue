@@ -714,7 +714,7 @@ h1 {
 
 .reports-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 1rem;
   margin-top: 1.25rem;
 }
@@ -919,24 +919,17 @@ h1 {
   grid-column: 1 / -1;
 }
 
-@media (max-width: 720px) {
-  .history-page {
-    padding: 1.2rem 0.8rem 2rem;
-  }
-
+@media (max-width: 960px) {
   .hero-panel,
   .edit-panel-header,
   .report-header,
-  .report-actions {
-    flex-direction: column;
-  }
-
-  .timestamp-block {
-    text-align: left;
-  }
-
+  .report-actions,
+  .report-meta,
+  .check-item-head,
+  .edit-check-header,
   .search-row {
     flex-direction: column;
+    align-items: stretch;
   }
 
   .search-row button,
@@ -947,8 +940,19 @@ h1 {
     width: 100%;
   }
 
-  .edit-grid {
+  .edit-grid,
+  .compact-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .history-page {
+    padding: 1.2rem 0.8rem 2rem;
+  }
+
+  .timestamp-block {
+    text-align: left;
   }
 }
 </style>
