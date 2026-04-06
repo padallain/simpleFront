@@ -15,6 +15,7 @@ const routeTable = ref([]);
 const loading = ref(false);
 const feedback = ref("");
 const errorMessage = ref("");
+const shareFeedback = ref("");
 
 const totalWeight = computed(() => Number(routeWeight.value) || 0);
 
@@ -48,6 +49,40 @@ const duplicateClientIds = computed(() => {
   });
 
   return Array.from(duplicates);
+});
+
+const driverRouteLink = computed(() => {
+  const normalizedDriverId = String(serverResponse.value?.savedRoute?.driverId || "").trim();
+
+  if (!normalizedDriverId || typeof window === "undefined") {
+    return "";
+  }
+
+  return `${window.location.origin}/driver-route?driverId=${encodeURIComponent(normalizedDriverId)}`;
+});
+
+const clientLinkEntries = computed(() => {
+  const routeStops = Array.isArray(serverResponse.value?.route) ? serverResponse.value.route : [];
+
+  return routeStops
+    .filter((stop) => stop?.nombre && stop?.googleMapsLink)
+    .map((stop) => ({
+      id: stop.id,
+      nombre: stop.nombre,
+      link: stop.googleMapsLink,
+      text: `${stop.nombre}, ${stop.googleMapsLink}`,
+    }));
+});
+
+const shareMessage = computed(() => {
+  const lines = clientLinkEntries.value.map((entry) => entry.text);
+
+  if (driverRouteLink.value) {
+    lines.push("");
+    lines.push(`Mi ruta: ${driverRouteLink.value}`);
+  }
+
+  return lines.join("\n");
 });
 
 watch(
@@ -125,6 +160,21 @@ function eliminarParada(idx) {
   paradas.value.splice(idx, 1);
 }
 
+async function copyText(text, successMessage) {
+  if (!text) {
+    return;
+  }
+
+  shareFeedback.value = "";
+
+  try {
+    await navigator.clipboard.writeText(text);
+    shareFeedback.value = successMessage;
+  } catch (_error) {
+    errorMessage.value = "No se pudo copiar automaticamente. Puedes copiar el texto manualmente desde el panel.";
+  }
+}
+
 async function makeRoute() {
   if (!paradas.value.length) {
     errorMessage.value = "Agrega al menos un cliente antes de generar la ruta.";
@@ -134,6 +184,7 @@ async function makeRoute() {
   loading.value = true;
   errorMessage.value = "";
   feedback.value = "";
+  shareFeedback.value = "";
 
   try {
     const response = await fetch(`${API_BASE_URL}/makeRoute`, {
@@ -265,6 +316,49 @@ async function makeRoute() {
           <div v-if="serverResponse.duplicateClientIds?.length" class="warning-inline">
             IDs consolidados por repeticion: {{ serverResponse.duplicateClientIds.join(", ") }}
           </div>
+        </div>
+
+        <div v-if="serverResponse.savedRoute || serverResponse.openRouteLink || serverResponse.googleMapsRouteLinks?.length" class="routes-card share-card">
+          <div class="driver-table-header">
+            <div>
+              <strong>Datos para enviar al chofer</strong>
+              <p class="share-copy">Copia el nombre del cliente con su link desde aqui, sin usar la consola.</p>
+            </div>
+            <button class="copy-button" type="button" @click="copyText(shareMessage, 'Mensaje copiado para compartir con el chofer.')">
+              Copiar mensaje completo
+            </button>
+          </div>
+
+          <div class="share-fields">
+            <div v-if="clientLinkEntries.length" class="share-list">
+              <article v-for="entry in clientLinkEntries" :key="entry.id || entry.link" class="share-list-item">
+                <div>
+                  <strong>{{ entry.nombre }}</strong>
+                  <p>{{ entry.link }}</p>
+                </div>
+                <button class="copy-button copy-button-inline" type="button" @click="copyText(entry.text, `${entry.nombre} copiado.`)">
+                  Copiar
+                </button>
+              </article>
+            </div>
+
+            <label v-if="driverRouteLink" class="field-group field-group-full">
+              <span>Link directo de Mi ruta</span>
+              <div class="copy-row copy-row-stacked">
+                <textarea :value="driverRouteLink" rows="2" readonly />
+                <button class="copy-button copy-button-inline" type="button" @click="copyText(driverRouteLink, 'Link de Mi ruta copiado.')">
+                  Copiar link
+                </button>
+              </div>
+            </label>
+
+            <label class="field-group field-group-full">
+              <span>Mensaje listo para compartir</span>
+              <textarea :value="shareMessage" rows="6" readonly />
+            </label>
+          </div>
+
+          <p v-if="shareFeedback" class="share-feedback">{{ shareFeedback }}</p>
         </div>
 
         <div class="routes-card">
@@ -514,6 +608,85 @@ async function makeRoute() {
   color: #f8ca5b;
 }
 
+.share-card {
+  display: grid;
+  gap: 1rem;
+}
+
+.share-copy {
+  margin: 0.35rem 0 0;
+  color: rgba(243, 246, 251, 0.72);
+}
+
+.share-fields {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.share-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.share-list-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.share-list-item p {
+  margin: 0.3rem 0 0;
+  color: rgba(243, 246, 251, 0.72);
+  word-break: break-word;
+}
+
+.copy-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
+.copy-row-stacked {
+  align-items: flex-start;
+}
+
+.copy-button {
+  min-height: 44px;
+  padding: 0.8rem 1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(159, 209, 255, 0.18);
+  background: rgba(69, 167, 255, 0.14);
+  color: #f3f6fb;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.copy-button-inline {
+  white-space: nowrap;
+}
+
+.share-fields textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.8rem 0.95rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.96);
+  color: #1f2937;
+  resize: vertical;
+}
+
+.share-feedback {
+  margin: 0;
+  color: #8df0b4;
+  font-weight: 600;
+}
+
 
 .table-wrapper {
   width: 100%;
@@ -572,6 +745,8 @@ async function makeRoute() {
 
 @media (max-width: 960px) {
   .input-row,
+  .copy-row,
+  .share-list-item,
   .driver-table-header,
   .summary-strip {
     flex-direction: column;

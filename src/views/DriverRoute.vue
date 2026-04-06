@@ -1,9 +1,10 @@
 <script setup>
-import { computed, reactive, ref } from "vue";
-import { useRouter } from "vue-router";
+import { computed, onMounted, reactive, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 const router = useRouter();
+const route = useRoute();
 
 const driverId = ref("");
 const routeData = ref(null);
@@ -352,6 +353,19 @@ async function submitDispatchIssue(stop) {
     ensureIssueForm(stop).submitting = false;
   }
 }
+
+onMounted(() => {
+  const prefilledDriverId = typeof route.query.driverId === "string"
+    ? route.query.driverId.trim()
+    : "";
+
+  if (!prefilledDriverId) {
+    return;
+  }
+
+  driverId.value = prefilledDriverId;
+  loadDriverRoute();
+});
 </script>
 
 <template>
