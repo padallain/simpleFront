@@ -15,6 +15,7 @@ const start = "08:00:00";
 const end = "17:00:00";
 const serverResponse = ref(""); // Variable para almacenar la respuesta del servidor
 const clientData = ref(null);
+const homeFeedback = ref("");
 
 const fetchClientCount = async () => {
   try {
@@ -100,6 +101,7 @@ const saveClient = async () => {
 
 const getClientAddress = async () => {
   const clientId = numberInput.value.toString();
+  homeFeedback.value = "";
 
   try {
     const response = await fetch(
@@ -121,6 +123,21 @@ const getClientAddress = async () => {
     clientData.value = { error: `Error en la solicitud: ${error.message}` };
   }
 };
+
+async function copyMapsLink() {
+  if (!clientData.value?.googleMapsLink) {
+    return;
+  }
+
+  homeFeedback.value = "";
+
+  try {
+    await navigator.clipboard.writeText(clientData.value.googleMapsLink);
+    homeFeedback.value = "Link de Google Maps copiado.";
+  } catch (_error) {
+    homeFeedback.value = "No se pudo copiar automaticamente.";
+  }
+}
 
 const goToClientLocationReports = () => {
   router.push('/client-location-reports');
@@ -212,6 +229,8 @@ const goToDispatchStatus = () => {
         <strong>Datos del cliente:</strong>
         <pre>{{ typeof clientData === 'string' ? clientData : JSON.stringify(clientData, null, 2) }}</pre>
         <div v-if="clientData.googleMapsLink" class="maps-link-row">
+          <input :value="clientData.googleMapsLink" type="text" readonly class="maps-link-input" />
+          <button class="shortcut-button maps-copy-button" @click="copyMapsLink">Copiar link</button>
           <a
             :href="clientData.googleMapsLink"
             target="_blank"
@@ -220,6 +239,7 @@ const goToDispatchStatus = () => {
             Ver ubicación en Google Maps
           </a>
         </div>
+        <p v-if="homeFeedback" class="maps-feedback">{{ homeFeedback }}</p>
       </div>
     </div>
   </section>
@@ -402,10 +422,25 @@ button:hover,
 
 .maps-link-row {
   margin-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
 }
 
 .maps-link {
   color: #8dc7ff;
+}
+
+.maps-link-input {
+  color: #1f2937;
+}
+
+.maps-copy-button {
+  width: 100%;
+}
+
+.maps-feedback {
+  margin: 0.75rem 0 0;
+  color: #8df0b4;
 }
 
 @media (max-width: 600px) {
