@@ -224,7 +224,15 @@ const goToDispatchStatus = () => {
         </div>
       </div>
 
-      <div v-if="serverResponse" class="response-card response-card-error">
+      <div
+        v-if="serverResponse"
+        :class="[
+          'response-card',
+          serverResponse && typeof serverResponse === 'object' && serverResponse.error
+            ? 'response-card-error'
+            : 'response-card-success',
+        ]"
+      >
         <strong>Respuesta del servidor:</strong>
         <pre>{{ typeof serverResponse === 'string' ? serverResponse : JSON.stringify(serverResponse, null, 2) }}</pre>
       </div>
@@ -418,6 +426,12 @@ button:hover,
 
 .response-card-error {
   color: #ffb4b4;
+}
+
+.response-card-success {
+  color: #8df0b4;
+  border-color: rgba(42, 181, 125, 0.28);
+  background: rgba(22, 52, 36, 0.45);
 }
 
 .response-card-info {
