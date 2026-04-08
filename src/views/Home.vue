@@ -84,8 +84,12 @@ const saveClient = async () => {
     const result = await response.json().catch(() => null);
 
     if (response.ok) {
-      serverResponse.value = result;
-      window.location.reload();
+      serverResponse.value = {
+        message: result?.message || "Cliente guardado exitosamente.",
+      };
+      clientData.value = null;
+      homeFeedback.value = "Cliente guardado exitosamente.";
+      await fetchClientCount();
     } else {
       // Si el backend manda un mensaje, lo mostramos, si no, mostramos el statusText
       serverResponse.value = result?.message
