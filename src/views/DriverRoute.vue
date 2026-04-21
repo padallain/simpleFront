@@ -45,8 +45,10 @@ const importantRouteFacts = computed(() => {
   }
 
   return [
-    { label: "Tipo original", value: routeData.value.routeTypeLabel || "Ruta generada" },
+    { label: "Tipo recomendado por sistema", value: "Mas cercana" },
+    { label: "Tipo actual", value: routeData.value.routeTypeLabel || "Ruta generada" },
     { label: "Estado actual", value: routeData.value.status || "Sin estado" },
+    { label: "Recorrido estimado", value: routeDistanceText.value },
     { label: "Paradas pendientes", value: String(pendingStopsCount.value) },
     { label: "Clientes no encontrados", value: String(routeData.value.missingClients?.length || 0) },
     { label: "Modificada por chofer", value: routeData.value.wasDriverModified ? "Si" : "No" },
@@ -110,7 +112,6 @@ function selectRoute(routeId) {
     return;
   }
 
-      { label: "Recorrido estimado", value: routeDistanceText.value },
   routeData.value = nextRoute;
   resetRouteUiState();
 }
@@ -252,12 +253,12 @@ async function restoreOriginalRoute() {
     const result = await response.json().catch(() => null);
 
     if (!response.ok) {
-      errorMessage.value = result?.message || "No se pudo restaurar la ruta original.";
+      errorMessage.value = result?.message || "No se pudo restaurar la ruta recomendada por el sistema.";
       return;
     }
 
     syncRouteCollection(result?.route || routeData.value);
-    feedback.value = "La ruta original del sistema fue restaurada.";
+    feedback.value = "La ruta recomendada por el sistema fue restaurada.";
   } catch (error) {
     errorMessage.value = `Error restaurando ruta: ${error.message}`;
   } finally {
@@ -652,7 +653,7 @@ onMounted(() => {
               :disabled="routeActionLoading === 'reset'"
               @click="restoreOriginalRoute"
             >
-              {{ routeActionLoading === 'reset' ? "Restaurando..." : "Volver a ruta original" }}
+              {{ routeActionLoading === 'reset' ? "Restaurando..." : "Volver a ruta recomendada" }}
             </button>
           </div>
 
@@ -669,7 +670,7 @@ onMounted(() => {
         <div class="driver-card editor-card">
           <div class="section-heading">
             <strong>Modificar orden de la ruta</strong>
-            <span>Puedes mover las paradas y guardar tu version o volver a la ruta original del sistema.</span>
+            <span>Puedes mover las paradas y guardar tu version o volver a la ruta recomendada por el sistema.</span>
           </div>
 
           <div v-if="editingRoute" class="editor-panel">
@@ -709,7 +710,7 @@ onMounted(() => {
                 {{ routeActionLoading === 'save' ? "Guardando..." : "Guardar mi orden" }}
               </button>
               <button class="ghost-button" type="button" :disabled="routeActionLoading === 'reset'" @click="restoreOriginalRoute">
-                {{ routeActionLoading === 'reset' ? "Restaurando..." : "Restaurar ruta original" }}
+                {{ routeActionLoading === 'reset' ? "Restaurando..." : "Restaurar ruta recomendada" }}
               </button>
             </div>
           </div>
