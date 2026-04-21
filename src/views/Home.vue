@@ -13,9 +13,99 @@ const numberInput = ref(0);
 const textInput = ref("");
 const start = "08:00:00";
 const end = "17:00:00";
-const serverResponse = ref(""); // Variable para almacenar la respuesta del servidor
+const serverResponse = ref(null);
 const clientData = ref(null);
 const homeFeedback = ref("");
+const formErrors = ref([]);
+const fieldErrors = ref({
+  latitude: "",
+  longitude: "",
+  clientId: "",
+  clientName: "",
+});
+const isSaving = ref(false);
+const isFetchingClient = ref(false);
+
+const BACKEND_MESSAGE_MAP = {
+  "All fields are required": "Completa todos los campos antes de guardar el cliente.",
+  "Client with this ID already exists": "Ya existe un cliente con ese ID.",
+  "Error registering client": "No se pudo guardar el cliente por un error del servidor.",
+  "Client not found": "No se encontro un cliente con ese ID.",
+  "Error getting client": "No se pudo consultar el cliente por un error del servidor.",
+};
+
+function translateServerMessage(message, fallback) {
+  if (!message) {
+    return fallback;
+  }
+
+  return BACKEND_MESSAGE_MAP[message] || message;
+}
+
+function setServerResponse(type, title, message, details = []) {
+  serverResponse.value = {
+    type,
+    title,
+    message,
+    details,
+  };
+}
+
+function resetFieldErrors() {
+  fieldErrors.value = {
+    latitude: "",
+    longitude: "",
+    clientId: "",
+    clientName: "",
+  };
+}
+
+function clearFieldError(fieldName) {
+  fieldErrors.value = {
+    ...fieldErrors.value,
+    [fieldName]: "",
+  };
+}
+
+function validateClientForm() {
+  const errors = [];
+  const clientId = String(numberInput.value ?? "").trim();
+  const clientName = textInput.value.trim();
+  const latitudeNumber = Number(latitude.value);
+  const longitudeNumber = Number(longitude.value);
+
+  resetFieldErrors();
+
+  if (!clientId) {
+    const message = "Falta el ID del cliente.";
+    errors.push(message);
+    fieldErrors.value.clientId = message;
+  }
+
+  if (!clientName) {
+    const message = "Falta el nombre del cliente.";
+    errors.push(message);
+    fieldErrors.value.clientName = message;
+  }
+
+  if (!Number.isFinite(latitudeNumber)) {
+    const message = "Falta obtener la latitud.";
+    errors.push(message);
+    fieldErrors.value.latitude = message;
+  }
+
+  if (!Number.isFinite(longitudeNumber)) {
+    const message = "Falta obtener la longitud.";
+    errors.push(message);
+    fieldErrors.value.longitude = message;
+  }
+
+  return errors;
+}
+
+async function parseJsonResponse(response) {
+  return response.json().catch(() => null);
+}
 
 const fetchClientCount = async () => {
   try {
@@ -49,25 +139,53 @@ const getGeolocation = () => {
       (position) => {
         latitude.value = position.coords.latitude;
         longitude.value = position.coords.longitude;
+        clearFieldError("latitude");
+        clearFieldError("longitude");
       },
       (error) => {
         console.error("Error obteniendo la geolocalización:", error);
+        setServerResponse(
+          "error",
+          "No se pudo obtener la geolocalizacion",
+          "Activa el permiso de ubicacion del navegador e intenta de nuevo.",
+        );
       }
     );
   } else {
     console.error("La geolocalización no es soportada por este navegador.");
+    setServerResponse(
+      "error",
+      "Navegador no compatible",
+      "Este navegador no permite obtener la geolocalizacion.",
+    );
   }
 };
 
 const saveClient = async () => {
-  const clientData = {
-    id: numberInput.value.toString(),
+  formErrors.value = validateClientForm();
+  clientData.value = null;
+  homeFeedback.value = "";
+
+  if (formErrors.value.length > 0) {
+    setServerResponse(
+      "error",
+      "Revisa el formulario",
+      "Corrige los datos marcados antes de guardar el cliente.",
+      formErrors.value,
+    );
+    return;
+  }
+
+  const payload = {
+    id: numberInput.value.toString().trim(),
     nombre: textInput.value,
     latitude: parseFloat(latitude.value),
     longitude: parseFloat(longitude.value),
     start,
     end,
   };
+
+  isSaving.value = true;
 
   try {
     const response = await fetch(
@@ -77,35 +195,58 @@ const saveClient = async () => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(clientData),
+        body: JSON.stringify(payload),
       }
     );
 
-    const result = await response.json().catch(() => null);
+    const result = await parseJsonResponse(response);
 
     if (response.ok) {
-      serverResponse.value = {
-        message: result?.message || "Cliente guardado exitosamente.",
-      };
+      setServerResponse(
+        "success",
+        "Cliente guardado",
+        translateServerMessage(result?.message, "El cliente se guardo correctamente."),
+      );
       clientData.value = null;
-      homeFeedback.value = "Cliente guardado exitosamente.";
+      formErrors.value = [];
+        resetFieldErrors();
+      homeFeedback.value = "";
       await fetchClientCount();
     } else {
-      // Si el backend manda un mensaje, lo mostramos, si no, mostramos el statusText
-      serverResponse.value = result?.message
-        ? { error: result.message }
-        : { error: response.statusText };
+      setServerResponse(
+        "error",
+        "No se pudo guardar el cliente",
+        translateServerMessage(result?.message, "Ocurrio un problema al guardar el cliente."),
+      );
     }
   } catch (error) {
-    serverResponse.value = { error: error.message };
+    setServerResponse(
+      "error",
+      "Sin conexion con el servidor",
+      error.message || "No fue posible comunicarse con el servidor.",
+    );
+  } finally {
+    isSaving.value = false;
   }
-  console.log(serverResponse.value);
 };
 
 
 const getClientAddress = async () => {
   const clientId = numberInput.value.toString();
   homeFeedback.value = "";
+  formErrors.value = [];
+
+  if (!clientId.trim()) {
+    setServerResponse(
+      "error",
+      "Falta el ID del cliente",
+      "Ingresa un ID valido para consultar la direccion del cliente.",
+    );
+    clientData.value = null;
+    return;
+  }
+
+  isFetchingClient.value = true;
 
   try {
     const response = await fetch(
@@ -115,16 +256,32 @@ const getClientAddress = async () => {
       }
     );
 
+    const result = await parseJsonResponse(response);
+
     if (response.ok) {
-      const result = await response.json();
       clientData.value = result;
+      setServerResponse(
+        "info",
+        "Cliente encontrado",
+        `Se cargaron los datos del cliente ${clientId.trim()}.`,
+      );
     } else {
-      clientData.value = {
-        error: `Error al obtener la dirección: ${response.statusText}`,
-      };
+      clientData.value = null;
+      setServerResponse(
+        "error",
+        "No se pudo obtener la direccion",
+        translateServerMessage(result?.message, response.statusText || "Consulta no disponible."),
+      );
     }
   } catch (error) {
-    clientData.value = { error: `Error en la solicitud: ${error.message}` };
+    clientData.value = null;
+    setServerResponse(
+      "error",
+      "Sin conexion con el servidor",
+      error.message || "No fue posible consultar el cliente.",
+    );
+  } finally {
+    isFetchingClient.value = false;
   }
 };
 
@@ -201,26 +358,37 @@ const goToDispatchStatus = () => {
         <div class="form-grid">
           <div class="form-group">
             <label for="latitude">Latitud:</label>
-            <input id="latitude" type="text" v-model="latitude" readonly />
+            <input id="latitude" :class="{ 'input-error': fieldErrors.latitude }" type="text" v-model="latitude" readonly />
+            <p v-if="fieldErrors.latitude" class="field-error">{{ fieldErrors.latitude }}</p>
           </div>
           <div class="form-group">
             <label for="longitude">Longitud:</label>
-            <input id="longitude" type="text" v-model="longitude" readonly />
+            <input id="longitude" :class="{ 'input-error': fieldErrors.longitude }" type="text" v-model="longitude" readonly />
+            <p v-if="fieldErrors.longitude" class="field-error">{{ fieldErrors.longitude }}</p>
           </div>
           <div class="form-group">
             <label for="numberInput">ID del cliente:</label>
-            <input id="numberInput" type="number" v-model="numberInput" />
+            <input id="numberInput" :class="{ 'input-error': fieldErrors.clientId }" type="number" v-model="numberInput" min="1" @input="clearFieldError('clientId')" />
+            <p v-if="fieldErrors.clientId" class="field-error">{{ fieldErrors.clientId }}</p>
           </div>
           <div class="form-group">
             <label for="textInput">Nombre del cliente:</label>
-            <input id="textInput" type="text" v-model="textInput" />
+            <input id="textInput" :class="{ 'input-error': fieldErrors.clientName }" type="text" v-model="textInput" maxlength="80" @input="clearFieldError('clientName')" />
+            <p v-if="fieldErrors.clientName" class="field-error">{{ fieldErrors.clientName }}</p>
           </div>
+        </div>
+
+        <div v-if="formErrors.length" class="validation-card">
+          <strong>Corrige esto antes de continuar:</strong>
+          <ul>
+            <li v-for="error in formErrors" :key="error">{{ error }}</li>
+          </ul>
         </div>
 
         <div class="button-group">
       <button class="geo-btn" @click="getGeolocation">Obtener Geolocalización</button>
-      <button class="save-btn" @click="saveClient">Guardar Cliente</button>
-      <button class="address-btn" @click="getClientAddress">Obtener Dirección del Cliente</button>
+      <button class="save-btn" :disabled="isSaving" @click="saveClient">{{ isSaving ? "Guardando..." : "Guardar Cliente" }}</button>
+      <button class="address-btn" :disabled="isFetchingClient" @click="getClientAddress">{{ isFetchingClient ? "Consultando..." : "Obtener Dirección del Cliente" }}</button>
         </div>
       </div>
 
@@ -228,13 +396,14 @@ const goToDispatchStatus = () => {
         v-if="serverResponse"
         :class="[
           'response-card',
-          serverResponse && typeof serverResponse === 'object' && serverResponse.error
-            ? 'response-card-error'
-            : 'response-card-success',
+          `response-card-${serverResponse.type || 'info'}`,
         ]"
       >
-        <strong>Respuesta del servidor:</strong>
-        <pre>{{ typeof serverResponse === 'string' ? serverResponse : JSON.stringify(serverResponse, null, 2) }}</pre>
+        <strong>{{ serverResponse.title }}</strong>
+        <p class="response-message">{{ serverResponse.message }}</p>
+        <ul v-if="serverResponse.details?.length" class="response-list">
+          <li v-for="detail in serverResponse.details" :key="detail">{{ detail }}</li>
+        </ul>
       </div>
 
       <div v-if="clientData" class="response-card response-card-info">
@@ -380,6 +549,17 @@ input {
   box-sizing: border-box;
 }
 
+.input-error {
+  border-color: #f87171;
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.16);
+}
+
+.field-error {
+  margin: 0.4rem 0 0;
+  font-size: 0.9rem;
+  color: #ffb4b4;
+}
+
 .button-group {
   display: flex;
   flex-wrap: wrap;
@@ -411,21 +591,45 @@ button:hover,
   background: linear-gradient(135deg, #2d95f5 0%, #0a4cb8 100%);
 }
 
+button:disabled,
+.geo-btn:disabled,
+.save-btn:disabled,
+.address-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.validation-card {
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  text-align: left;
+  color: #ffe0b2;
+  background: rgba(120, 53, 15, 0.34);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.validation-card ul,
+.response-list {
+  margin: 0.75rem 0 0;
+  padding-left: 1.2rem;
+}
+
 .response-card {
   margin-top: 1rem;
   padding: 1rem 1.2rem;
   text-align: left;
 }
 
-.response-card pre {
-  margin: 0.75rem 0 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow: auto;
+.response-message {
+  margin: 0.5rem 0 0;
+  line-height: 1.5;
 }
 
 .response-card-error {
   color: #ffb4b4;
+  border-color: rgba(248, 113, 113, 0.34);
+  background: rgba(86, 26, 26, 0.45);
 }
 
 .response-card-success {
@@ -436,6 +640,8 @@ button:hover,
 
 .response-card-info {
   color: #a8d0ff;
+  border-color: rgba(96, 165, 250, 0.32);
+  background: rgba(20, 44, 82, 0.42);
 }
 
 .maps-link-row {

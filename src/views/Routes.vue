@@ -16,6 +16,13 @@ const loading = ref(false);
 const feedback = ref("");
 const errorMessage = ref("");
 const shareFeedback = ref("");
+const selectedRouteType = ref("closest");
+
+const routeTypeOptions = [
+  { value: "closest", label: "Mas cercana" },
+  { value: "farthest", label: "Lejanos primero" },
+  { value: "alphabetical", label: "Orden alfabetico" },
+];
 
 const totalWeight = computed(() => Number(routeWeight.value) || 0);
 
@@ -61,8 +68,37 @@ const driverRouteLink = computed(() => {
   return `${window.location.origin}/driver-route?driverId=${encodeURIComponent(normalizedDriverId)}`;
 });
 
+const routeOptions = computed(() => {
+  if (Array.isArray(serverResponse.value?.routeOptions) && serverResponse.value.routeOptions.length) {
+    return serverResponse.value.routeOptions;
+  }
+
+  if (Array.isArray(serverResponse.value?.route) && serverResponse.value.route.length) {
+    return [{
+      type: serverResponse.value?.routeType || "closest",
+      label: serverResponse.value?.routeTypeLabel || "Ruta generada",
+      description: "Resultado calculado para la ruta solicitada.",
+      estimatedDistanceKm: null,
+      route: serverResponse.value.route,
+      routeNames: serverResponse.value.routeNames || [],
+      googleMapsRouteLinks: serverResponse.value.googleMapsRouteLinks || [],
+      openRouteLink: serverResponse.value.openRouteLink || "",
+    }];
+  }
+
+  return [];
+});
+
+const activeRouteOption = computed(() => {
+  if (!routeOptions.value.length) {
+    return null;
+  }
+
+  return routeOptions.value.find((option) => option.type === selectedRouteType.value) || routeOptions.value[0];
+});
+
 const clientLinkEntries = computed(() => {
-  const routeStops = Array.isArray(serverResponse.value?.route) ? serverResponse.value.route : [];
+  const routeStops = Array.isArray(activeRouteOption.value?.route) ? activeRouteOption.value.route : [];
 
   return routeStops
     .filter((stop) => stop?.nombre && stop?.googleMapsLink)
@@ -77,6 +113,10 @@ const clientLinkEntries = computed(() => {
 const shareMessage = computed(() => {
   const lines = clientLinkEntries.value.map((entry) => entry.text);
 
+  if (activeRouteOption.value?.label) {
+    lines.unshift(`Tipo de ruta: ${activeRouteOption.value.label}`);
+  }
+
   if (driverRouteLink.value) {
     lines.push("");
     lines.push(`Mi ruta: ${driverRouteLink.value}`);
@@ -86,7 +126,7 @@ const shareMessage = computed(() => {
 });
 
 watch(
-  () => serverResponse.value?.route,
+  () => activeRouteOption.value?.route,
   (route) => {
     if (Array.isArray(route) && route.length) {
       routeTable.value = route.map((stop, idx) => ({
@@ -112,8 +152,9 @@ function printRoutePDF() {
   doc.text("Tabla de paradas para el chofer", 10, 10);
   doc.setFontSize(12);
   doc.text(`Chofer ID: ${driverId.value || "Sin asignar"}`, 10, 18);
-  doc.text(`Peso total: ${totalWeight.value}`, 10, 26);
-  doc.text(`Clientes unicos: ${uniqueClientCount.value}`, 10, 34);
+  doc.text(`Tipo: ${activeRouteOption.value?.label || "Ruta generada"}`, 10, 26);
+  doc.text(`Peso total: ${totalWeight.value}`, 10, 34);
+  doc.text(`Clientes unicos: ${uniqueClientCount.value}`, 10, 42);
   doc.text("Orden", 10, 46);
   doc.text("Parada", 30, 46);
   doc.text("Ruta", 120, 46);
@@ -196,6 +237,7 @@ async function makeRoute() {
         driverId: driverId.value.trim(),
         driverName: driverName.value.trim(),
         routeLabel: routeLabel.value.trim(),
+        routeType: selectedRouteType.value,
         routeWeight: Number(routeWeight.value) || 0,
         stops: paradas.value.map((stop) => ({ clientId: stop.parada })),
       }),
@@ -210,9 +252,10 @@ async function makeRoute() {
     }
 
     serverResponse.value = result;
+    selectedRouteType.value = result?.routeType || selectedRouteType.value;
     feedback.value = result?.savedRoute?.routeId
-      ? `Ruta guardada con folio ${result.savedRoute.routeId} para el chofer ${result.savedRoute.driverId}.`
-      : "Ruta calculada correctamente. Agrega un ID de chofer para dejarla asignada y guardada.";
+      ? `Ruta ${result.routeTypeLabel || "seleccionada"} guardada con folio ${result.savedRoute.routeId} para el chofer ${result.savedRoute.driverId}.`
+      : "Rutas calculadas correctamente. Selecciona un tipo y agrega un ID de chofer para dejar la opcion guardada.";
 
   } catch (error) {
     serverResponse.value = null;
@@ -247,6 +290,14 @@ async function makeRoute() {
           <div class="field-group field-group-wide">
             <label for="routeLabel">Nombre de la ruta</label>
             <input id="routeLabel" v-model="routeLabel" type="text" placeholder="Opcional. Si no, se genera automaticamente." />
+          </div>
+          <div class="field-group">
+            <label for="routeType">Tipo de ruta a guardar</label>
+            <select id="routeType" v-model="selectedRouteType">
+              <option v-for="option in routeTypeOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
           </div>
           <div class="field-group">
             <label for="routeWeight">Peso total de la ruta</label>
@@ -312,13 +363,38 @@ async function makeRoute() {
             <span><strong>Clientes unicos:</strong> {{ serverResponse.uniqueClientCount }}</span>
             <span><strong>Peso total:</strong> {{ serverResponse.totalWeight }}</span>
             <span><strong>Chofer:</strong> {{ serverResponse.savedRoute?.driverId || 'Sin asignar' }}</span>
+            <span><strong>Opcion activa:</strong> {{ activeRouteOption?.label || serverResponse.routeTypeLabel }}</span>
           </div>
           <div v-if="serverResponse.duplicateClientIds?.length" class="warning-inline">
             IDs consolidados por repeticion: {{ serverResponse.duplicateClientIds.join(", ") }}
           </div>
         </div>
 
-        <div v-if="serverResponse.savedRoute || serverResponse.openRouteLink || serverResponse.googleMapsRouteLinks?.length" class="routes-card share-card">
+        <div v-if="routeOptions.length > 1" class="routes-card route-options-card">
+          <div class="driver-table-header">
+            <div>
+              <strong>Opciones de ruta</strong>
+              <p class="share-copy">Selecciona el tipo que quieres revisar en el frontend.</p>
+            </div>
+          </div>
+
+          <div class="route-option-grid">
+            <button
+              v-for="option in routeOptions"
+              :key="option.type"
+              type="button"
+              class="route-option-button"
+              :class="{ 'route-option-button-active': selectedRouteType === option.type }"
+              @click="selectedRouteType = option.type"
+            >
+              <strong>{{ option.label }}</strong>
+              <span>{{ option.description }}</span>
+              <small v-if="option.estimatedDistanceKm !== null">{{ option.estimatedDistanceKm }} km aprox.</small>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="serverResponse.savedRoute || activeRouteOption?.openRouteLink || activeRouteOption?.googleMapsRouteLinks?.length" class="routes-card share-card">
           <div class="driver-table-header">
             <div>
               <strong>Datos para enviar al chofer</strong>
@@ -365,7 +441,7 @@ async function makeRoute() {
           <strong>Resumen de la ruta:</strong>
           <div class="table-wrapper">
             <el-table
-              :data="serverResponse.route"
+              :data="activeRouteOption?.route || []"
               class="responsive-table result-table"
             >
         <el-table-column prop="id" label="ID" width="150" />
@@ -433,10 +509,10 @@ async function makeRoute() {
           </div>
         </div>
 
-        <div v-if="serverResponse.openRouteLink" class="routes-card link-card">
+        <div v-if="activeRouteOption?.openRouteLink" class="routes-card link-card">
           <strong>Ruta en OpenRouteService:</strong>
           <a
-            :href="serverResponse.openRouteLink"
+            :href="activeRouteOption.openRouteLink"
             target="_blank"
             class="ors-link"
             >Ver en OpenRouteService</a
@@ -449,7 +525,7 @@ async function makeRoute() {
         </div>
 
         <div
-          v-if="serverResponse.routeNames && serverResponse.routeNames.length"
+          v-if="activeRouteOption?.routeNames && activeRouteOption.routeNames.length"
           class="routes-card"
         >
           <div class="driver-table-header">
@@ -559,6 +635,7 @@ async function makeRoute() {
 }
 
 .field-group input,
+.field-group select,
 .route-input {
   width: 100%;
   min-height: 44px;
@@ -685,6 +762,43 @@ async function makeRoute() {
   margin: 0;
   color: #8df0b4;
   font-weight: 600;
+}
+
+.route-options-card {
+  display: grid;
+  gap: 1rem;
+}
+
+.route-option-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.9rem;
+}
+
+.route-option-button {
+  display: grid;
+  gap: 0.4rem;
+  text-align: left;
+  padding: 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(159, 209, 255, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f3f6fb;
+  cursor: pointer;
+}
+
+.route-option-button span {
+  color: rgba(243, 246, 251, 0.72);
+}
+
+.route-option-button small {
+  color: #9fd1ff;
+}
+
+.route-option-button-active {
+  border-color: rgba(69, 167, 255, 0.7);
+  background: rgba(69, 167, 255, 0.16);
+  box-shadow: 0 0 0 2px rgba(69, 167, 255, 0.18);
 }
 
 
