@@ -15,8 +15,67 @@ const feedback = ref("");
 const updatingKey = ref("");
 const openIssueForms = reactive({});
 const issueForms = reactive({});
+const editingRoute = ref(false);
+const editableStops = ref([]);
+const routeActionLoading = ref("");
+const draggedStopIndex = ref(-1);
+const dragOverStopIndex = ref(-1);
 
 const activeRouteCount = computed(() => assignedRoutes.value.filter((route) => route?.status === "active").length);
+
+const pendingStopsCount = computed(() =>
+  Array.isArray(routeData.value?.stops)
+    ? routeData.value.stops.filter((stop) => !stop.dispatched).length
+    : 0,
+);
+
+const routeProgressPercent = computed(() => {
+  const totalStops = Array.isArray(routeData.value?.stops) ? routeData.value.stops.length : 0;
+
+  if (!totalStops) {
+    return 0;
+  }
+
+  return Math.round((dispatchedCount.value / totalStops) * 100);
+});
+
+const importantRouteFacts = computed(() => {
+  if (!routeData.value) {
+    return [];
+  }
+
+  return [
+    { label: "Tipo original", value: routeData.value.routeTypeLabel || "Ruta generada" },
+    { label: "Estado actual", value: routeData.value.status || "Sin estado" },
+    { label: "Paradas pendientes", value: String(pendingStopsCount.value) },
+    { label: "Clientes no encontrados", value: String(routeData.value.missingClients?.length || 0) },
+    { label: "Modificada por chofer", value: routeData.value.wasDriverModified ? "Si" : "No" },
+    {
+      label: "Ultima actualizacion",
+      value: routeData.value.updatedAt ? new Date(routeData.value.updatedAt).toLocaleString("es-MX") : "Sin dato",
+    },
+  ];
+});
+
+const routeMapLinks = computed(() =>
+  Array.isArray(routeData.value?.googleMapsRouteLinks) ? routeData.value.googleMapsRouteLinks : [],
+);
+
+const routeDistanceText = computed(() => {
+  const totalDistanceKm = Number(routeData.value?.totalDistanceKm);
+
+  if (!Number.isFinite(totalDistanceKm) || totalDistanceKm <= 0) {
+    return "Sin dato";
+  }
+
+  return `${totalDistanceKm.toFixed(2)} km`;
+});
+
+function cloneStops(stops) {
+  return Array.isArray(stops)
+    ? stops.map((stop) => ({ ...stop }))
+    : [];
+}
 
 const dispatchedCount = computed(() =>
   Array.isArray(routeData.value?.stops)
@@ -34,6 +93,8 @@ function createIssueItem() {
 }
 
 function resetRouteUiState() {
+  editingRoute.value = false;
+  editableStops.value = [];
   Object.keys(openIssueForms).forEach((key) => {
     delete openIssueForms[key];
   });
@@ -49,6 +110,7 @@ function selectRoute(routeId) {
     return;
   }
 
+      { label: "Recorrido estimado", value: routeDistanceText.value },
   routeData.value = nextRoute;
   resetRouteUiState();
 }
@@ -79,6 +141,128 @@ function syncRouteCollection(updatedRoute) {
 
 function getStopKey(stop) {
   return String(stop?.clientId || "");
+}
+
+function startRouteEditing() {
+  if (!Array.isArray(routeData.value?.stops) || routeData.value.stops.length === 0) {
+    return;
+  }
+
+  editableStops.value = cloneStops(routeData.value.stops);
+  editingRoute.value = true;
+  errorMessage.value = "";
+  feedback.value = "";
+}
+
+function cancelRouteEditing() {
+  editingRoute.value = false;
+  editableStops.value = [];
+  draggedStopIndex.value = -1;
+  dragOverStopIndex.value = -1;
+}
+
+function normalizeEditableStopOrder(stops) {
+  return stops.map((stop, index) => ({
+    ...stop,
+    order: index + 1,
+  }));
+}
+
+function startStopDrag(index) {
+  draggedStopIndex.value = index;
+  dragOverStopIndex.value = index;
+}
+
+function handleStopDragOver(index) {
+  if (draggedStopIndex.value === -1) {
+    return;
+  }
+
+  dragOverStopIndex.value = index;
+}
+
+function handleStopDrop(index) {
+  if (draggedStopIndex.value === -1 || draggedStopIndex.value === index) {
+    draggedStopIndex.value = -1;
+    dragOverStopIndex.value = -1;
+    return;
+  }
+
+  const nextStops = [...editableStops.value];
+  const [draggedStop] = nextStops.splice(draggedStopIndex.value, 1);
+  nextStops.splice(index, 0, draggedStop);
+  editableStops.value = normalizeEditableStopOrder(nextStops);
+  draggedStopIndex.value = -1;
+  dragOverStopIndex.value = -1;
+}
+
+function endStopDrag() {
+  draggedStopIndex.value = -1;
+  dragOverStopIndex.value = -1;
+}
+
+async function saveRouteCustomization() {
+  if (!routeData.value?._id || editableStops.value.length === 0) {
+    return;
+  }
+
+  routeActionLoading.value = "save";
+  errorMessage.value = "";
+  feedback.value = "";
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/driver-routes/${routeData.value._id}/customize`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        stops: editableStops.value.map((stop) => ({ clientId: stop.clientId })),
+      }),
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      errorMessage.value = result?.message || "No se pudo guardar la personalizacion de la ruta.";
+      return;
+    }
+
+    syncRouteCollection(result?.route || routeData.value);
+    feedback.value = "La ruta personalizada se guardo correctamente para este chofer.";
+  } catch (error) {
+    errorMessage.value = `Error guardando personalizacion: ${error.message}`;
+  } finally {
+    routeActionLoading.value = "";
+  }
+}
+
+async function restoreOriginalRoute() {
+  if (!routeData.value?._id) {
+    return;
+  }
+
+  routeActionLoading.value = "reset";
+  errorMessage.value = "";
+  feedback.value = "";
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/driver-routes/${routeData.value._id}/reset`, {
+      method: "POST",
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      errorMessage.value = result?.message || "No se pudo restaurar la ruta original.";
+      return;
+    }
+
+    syncRouteCollection(result?.route || routeData.value);
+    feedback.value = "La ruta original del sistema fue restaurada.";
+  } catch (error) {
+    errorMessage.value = `Error restaurando ruta: ${error.message}`;
+  } finally {
+    routeActionLoading.value = "";
+  }
 }
 
 function ensureIssueForm(stop) {
@@ -423,11 +607,111 @@ onMounted(() => {
             <span><strong>Estado:</strong> {{ routeData.status }}</span>
             <span><strong>Clientes unicos:</strong> {{ routeData.uniqueClientCount }}</span>
             <span><strong>Peso total:</strong> {{ routeData.totalWeight }}</span>
+            <span><strong>Km estimados:</strong> {{ routeDistanceText }}</span>
             <span><strong>Despachados:</strong> {{ dispatchedCount }} / {{ routeData.stops.length }}</span>
             </div>
-            <button class="secondary-button" type="button" @click="openRouteIssueSummary">
+          </div>
+          <div class="progress-strip">
+            <div class="progress-bar">
+              <span class="progress-bar-fill" :style="{ width: `${routeProgressPercent}%` }" />
+            </div>
+            <strong>{{ routeProgressPercent }}% completado</strong>
+          </div>
+        </div>
+
+        <div class="driver-card info-card">
+          <div class="section-heading">
+            <strong>Datos importantes de la ruta</strong>
+            <span>Referencia rapida para el chofer antes de salir.</span>
+          </div>
+
+          <div class="facts-grid">
+            <article v-for="fact in importantRouteFacts" :key="fact.label" class="fact-item">
+              <span>{{ fact.label }}</span>
+              <strong>{{ fact.value }}</strong>
+            </article>
+          </div>
+        </div>
+
+        <div class="driver-card actions-card">
+          <div class="section-heading">
+            <strong>Acciones rapidas</strong>
+            <span>Botones separados de los datos importantes para una vista mas clara.</span>
+          </div>
+
+          <div class="actions-grid">
+            <button class="secondary-button action-button" type="button" @click="openRouteIssueSummary">
               Ver resumen de novedades
             </button>
+            <button class="secondary-button action-button" type="button" @click="startRouteEditing">
+              Personalizar orden
+            </button>
+            <button
+              class="ghost-button action-button"
+              type="button"
+              :disabled="routeActionLoading === 'reset'"
+              @click="restoreOriginalRoute"
+            >
+              {{ routeActionLoading === 'reset' ? "Restaurando..." : "Volver a ruta original" }}
+            </button>
+          </div>
+
+          <div class="route-links-grid">
+            <a v-if="routeData.openRouteLink" :href="routeData.openRouteLink" target="_blank" rel="noreferrer" class="map-link-card">
+              Abrir ruta completa en OpenRouteService
+            </a>
+            <a v-for="(link, index) in routeMapLinks" :key="`${routeData._id}-map-${index}`" :href="link" target="_blank" rel="noreferrer" class="map-link-card">
+              Abrir tramo {{ index + 1 }} en Google Maps
+            </a>
+          </div>
+        </div>
+
+        <div class="driver-card editor-card">
+          <div class="section-heading">
+            <strong>Modificar orden de la ruta</strong>
+            <span>Puedes mover las paradas y guardar tu version o volver a la ruta original del sistema.</span>
+          </div>
+
+          <div v-if="editingRoute" class="editor-panel">
+            <p class="editor-help">
+              Mantén presionada una parada, arrástrala y suéltala en la posición que quieras.
+            </p>
+            <div class="editable-stops-list">
+              <article
+                v-for="(stop, index) in editableStops"
+                :key="`edit-${stop.clientId}`"
+                class="editable-stop-item"
+                :class="{
+                  'editable-stop-item-dragging': draggedStopIndex === index,
+                  'editable-stop-item-target': dragOverStopIndex === index && draggedStopIndex !== index,
+                }"
+                draggable="true"
+                @dragstart="startStopDrag(index)"
+                @dragover.prevent="handleStopDragOver(index)"
+                @drop.prevent="handleStopDrop(index)"
+                @dragend="endStopDrag"
+              >
+                <div>
+                  <strong>{{ index + 1 }}. {{ stop.nombre }}</strong>
+                  <p>ID {{ stop.clientId }}</p>
+                </div>
+                <div class="editable-stop-actions">
+                  <span class="drag-handle">Arrastrar</span>
+                </div>
+              </article>
+            </div>
+
+            <div class="editor-actions">
+              <button class="ghost-button" type="button" @click="cancelRouteEditing">
+                Cancelar cambios
+              </button>
+              <button class="secondary-button" type="button" :disabled="routeActionLoading === 'save'" @click="saveRouteCustomization">
+                {{ routeActionLoading === 'save' ? "Guardando..." : "Guardar mi orden" }}
+              </button>
+              <button class="ghost-button" type="button" :disabled="routeActionLoading === 'reset'" @click="restoreOriginalRoute">
+                {{ routeActionLoading === 'reset' ? "Restaurando..." : "Restaurar ruta original" }}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -614,7 +898,9 @@ onMounted(() => {
 .stop-main,
 .missing-actions,
 .section-heading,
-.issue-actions {
+.issue-actions,
+.editor-actions,
+.editable-stop-actions {
   display: flex;
   gap: 0.8rem;
   flex-wrap: wrap;
@@ -674,9 +960,107 @@ onMounted(() => {
 
 .driver-results,
 .stops-list,
-.missing-list {
+.missing-list,
+.editor-panel,
+.editable-stops-list,
+.route-links-grid,
+.actions-grid {
   display: grid;
   gap: 1rem;
+}
+
+.actions-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+}
+
+.action-button {
+  width: 100%;
+  justify-content: center;
+}
+
+.facts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.editor-help {
+  margin: 0;
+  color: rgba(243, 246, 251, 0.72);
+}
+
+.fact-item,
+.editable-stop-item,
+.map-link-card {
+  padding: 0.95rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.fact-item span {
+  display: block;
+  color: rgba(243, 246, 251, 0.68);
+  margin-bottom: 0.35rem;
+}
+
+.map-link-card {
+  color: #f3f6fb;
+  text-decoration: none;
+}
+
+.editable-stop-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  cursor: grab;
+  transition: border-color 0.2s ease, transform 0.2s ease, background 0.2s ease;
+}
+
+.editable-stop-item-dragging {
+  opacity: 0.55;
+  cursor: grabbing;
+}
+
+.editable-stop-item-target {
+  border-color: rgba(69, 167, 255, 0.72);
+  background: rgba(69, 167, 255, 0.12);
+  transform: translateY(-2px);
+}
+
+.drag-handle {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0.65rem 0.85rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(243, 246, 251, 0.82);
+  font-weight: 700;
+}
+
+.progress-strip {
+  margin-top: 1rem;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+  margin-bottom: 0.55rem;
+}
+
+.progress-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(135deg, #45a7ff 0%, #22c55e 100%);
 }
 
 .route-switcher-grid {
