@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import RouteOsmMap from "../components/RouteOsmMap.vue";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 const router = useRouter();
@@ -61,6 +62,10 @@ const importantRouteFacts = computed(() => {
 
 const routeMapLinks = computed(() =>
   Array.isArray(routeData.value?.googleMapsRouteLinks) ? routeData.value.googleMapsRouteLinks : [],
+);
+
+const routeMapStops = computed(() =>
+  Array.isArray(routeData.value?.stops) ? routeData.value.stops : [],
 );
 
 const routeDistanceText = computed(() => {
@@ -665,6 +670,14 @@ onMounted(() => {
               Abrir tramo {{ index + 1 }} en Google Maps
             </a>
           </div>
+        </div>
+
+        <div class="driver-card map-card">
+          <RouteOsmMap
+            title="Mapa OSM de la ruta"
+            description="Aquí sí se muestran las paradas con su orden dentro del teléfono, sin depender del visor externo."
+            :stops="routeMapStops"
+          />
         </div>
 
         <div class="driver-card editor-card">

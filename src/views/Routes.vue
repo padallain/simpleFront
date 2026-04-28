@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from "vue";
 import jsPDF from "jspdf";
+import RouteOsmMap from "../components/RouteOsmMap.vue";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -96,6 +97,10 @@ const activeRouteOption = computed(() => {
 
   return routeOptions.value.find((option) => option.type === selectedRouteType.value) || routeOptions.value[0];
 });
+
+const activeRouteMapStops = computed(() =>
+  Array.isArray(activeRouteOption.value?.route) ? activeRouteOption.value.route : [],
+);
 
 const clientLinkEntries = computed(() => {
   const routeStops = Array.isArray(activeRouteOption.value?.route) ? activeRouteOption.value.route : [];
@@ -468,6 +473,14 @@ async function makeRoute() {
         </el-table-column>
             </el-table>
           </div>
+        </div>
+
+        <div v-if="activeRouteMapStops.length" class="routes-card">
+          <RouteOsmMap
+            title="Mapa OSM de la ruta"
+            description="Las paradas se muestran numeradas sobre OpenStreetMap para revisarlas mejor también en teléfono."
+            :stops="activeRouteMapStops"
+          />
         </div>
 
         <div

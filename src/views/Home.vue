@@ -1,6 +1,12 @@
 <script setup>
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import {
+  getPendingClientCount,
+  getPendingClientQueue,
+  queueClientForSync,
+  removeQueuedClients,
+} from "../services/offlineClientQueue";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 const route = useRoute();
@@ -25,6 +31,9 @@ const fieldErrors = ref({
 });
 const isSaving = ref(false);
 const isFetchingClient = ref(false);
+const isSyncingPending = ref(false);
+const pendingClientCount = ref(0);
+const isOnline = ref(typeof navigator === "undefined" ? true : navigator.onLine);
 
 const BACKEND_MESSAGE_MAP = {
   "All fields are required": "Completa todos los campos antes de guardar el cliente.",
@@ -107,6 +116,119 @@ async function parseJsonResponse(response) {
   return response.json().catch(() => null);
 }
 
+function refreshPendingClientCount() {
+  pendingClientCount.value = getPendingClientCount();
+}
+
+function resetClientForm() {
+  latitude.value = "";
+  longitude.value = "";
+  numberInput.value = 0;
+  textInput.value = "";
+  formErrors.value = [];
+  resetFieldErrors();
+}
+
+async function submitClientPayload(payload) {
+  const response = await fetch(`${API_BASE_URL}/registerClient`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const result = await parseJsonResponse(response);
+
+  return {
+    ok: response.ok,
+    result,
+  };
+}
+
+async function syncPendingClients(options = {}) {
+  if (isSyncingPending.value || !isOnline.value) {
+    refreshPendingClientCount();
+    return { syncedCount: 0, remainingCount: getPendingClientCount() };
+  }
+
+  const { silent = false } = options;
+  const queue = getPendingClientQueue();
+
+  if (queue.length === 0) {
+    refreshPendingClientCount();
+    return { syncedCount: 0, remainingCount: 0 };
+  }
+
+  isSyncingPending.value = true;
+  const syncedQueueIds = [];
+  let syncedCount = 0;
+  let blockedByServer = false;
+
+  try {
+    for (const item of queue) {
+      try {
+        const submission = await submitClientPayload(item.payload);
+
+        if (!submission.ok) {
+          blockedByServer = true;
+          break;
+        }
+
+        syncedQueueIds.push(item.queueId);
+        syncedCount += 1;
+      } catch (_error) {
+        break;
+      }
+    }
+
+    if (syncedQueueIds.length > 0) {
+      removeQueuedClients(syncedQueueIds);
+      await fetchClientCount();
+    }
+
+    refreshPendingClientCount();
+
+    if (!silent) {
+      if (syncedCount > 0 && pendingClientCount.value === 0) {
+        setServerResponse(
+          "success",
+          "Sincronizacion completada",
+          `Se enviaron ${syncedCount} cliente(s) pendientes al servidor.`,
+        );
+      } else if (syncedCount > 0) {
+        setServerResponse(
+          "info",
+          "Sincronizacion parcial",
+          `Se enviaron ${syncedCount} cliente(s). Aun quedan ${pendingClientCount.value} pendientes.`,
+        );
+      } else if (blockedByServer) {
+        setServerResponse(
+          "error",
+          "No se pudieron sincronizar los pendientes",
+          "El servidor rechazo al menos un cliente pendiente. Revisa los datos antes de reintentar.",
+        );
+      }
+    }
+
+    return {
+      syncedCount,
+      remainingCount: pendingClientCount.value,
+    };
+  } finally {
+    isSyncingPending.value = false;
+  }
+}
+
+function handleOnline() {
+  isOnline.value = true;
+  syncPendingClients();
+}
+
+function handleOffline() {
+  isOnline.value = false;
+}
+
 const fetchClientCount = async () => {
   try {
     const response = await fetch(`${API_BASE_URL}/countClients`);
@@ -129,7 +251,16 @@ onMounted(() => {
     numberInput.value = queryClientId;
   }
 
+  refreshPendingClientCount();
   fetchClientCount();
+  syncPendingClients({ silent: true });
+  window.addEventListener("online", handleOnline);
+  window.addEventListener("offline", handleOffline);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("online", handleOnline);
+  window.removeEventListener("offline", handleOffline);
 });
 
 
@@ -188,43 +319,50 @@ const saveClient = async () => {
   isSaving.value = true;
 
   try {
-    const response = await fetch(
-      `${API_BASE_URL}/registerClient`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      }
-    );
+    if (!isOnline.value) {
+      queueClientForSync(payload);
+      refreshPendingClientCount();
+      setServerResponse(
+        "info",
+        "Cliente guardado sin internet",
+        `La ubicacion se capturo y el cliente quedo almacenado en este telefono. Hay ${pendingClientCount.value} pendiente(s) por sincronizar.`,
+      );
+      clientData.value = null;
+      homeFeedback.value = "";
+      resetClientForm();
+      return;
+    }
 
-    const result = await parseJsonResponse(response);
+    const submission = await submitClientPayload(payload);
 
-    if (response.ok) {
+    if (submission.ok) {
       setServerResponse(
         "success",
         "Cliente guardado",
-        translateServerMessage(result?.message, "El cliente se guardo correctamente."),
+        translateServerMessage(submission.result?.message, "El cliente se guardo correctamente."),
       );
       clientData.value = null;
-      formErrors.value = [];
-        resetFieldErrors();
       homeFeedback.value = "";
+      resetClientForm();
       await fetchClientCount();
     } else {
       setServerResponse(
         "error",
         "No se pudo guardar el cliente",
-        translateServerMessage(result?.message, "Ocurrio un problema al guardar el cliente."),
+        translateServerMessage(submission.result?.message, "Ocurrio un problema al guardar el cliente."),
       );
     }
   } catch (error) {
+    queueClientForSync(payload);
+    refreshPendingClientCount();
     setServerResponse(
-      "error",
-      "Sin conexion con el servidor",
-      error.message || "No fue posible comunicarse con el servidor.",
+      "info",
+      "Cliente guardado para sincronizar",
+      `No fue posible comunicarse con el servidor, pero la ubicacion quedo almacenada localmente. Hay ${pendingClientCount.value} pendiente(s).`,
     );
+    clientData.value = null;
+    homeFeedback.value = "";
+    resetClientForm();
   } finally {
     isSaving.value = false;
   }
@@ -355,6 +493,20 @@ const goToDispatchStatus = () => {
       </div>
 
       <div class="form-card">
+        <div class="offline-banner" :class="isOnline ? 'offline-banner-info' : 'offline-banner-warning'">
+          <div>
+            <strong>{{ isOnline ? 'Modo sincronizable' : 'Modo sin internet' }}</strong>
+            <p>
+              {{ isOnline
+                ? `Hay ${pendingClientCount} cliente(s) pendiente(s) por sincronizar en este dispositivo.`
+                : `Puedes capturar ubicaciones sin internet. Se guardaran localmente y luego se enviaran. Pendientes: ${pendingClientCount}.` }}
+            </p>
+          </div>
+          <button class="shortcut-button sync-button" :disabled="isSyncingPending || pendingClientCount === 0 || !isOnline" @click="syncPendingClients()">
+            {{ isSyncingPending ? "Sincronizando..." : "Sincronizar pendientes" }}
+          </button>
+        </div>
+
         <div class="form-grid">
           <div class="form-group">
             <label for="latitude">Latitud:</label>
@@ -519,6 +671,37 @@ const goToDispatchStatus = () => {
   padding: 1.2rem;
 }
 
+.offline-banner {
+  margin-bottom: 1rem;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  text-align: left;
+  background: rgba(8, 17, 29, 0.7);
+  border: 1px solid rgba(159, 209, 255, 0.14);
+}
+
+.offline-banner strong {
+  color: #f3f6fb;
+}
+
+.offline-banner p {
+  margin: 0.35rem 0 0;
+  color: rgba(243, 246, 251, 0.76);
+}
+
+.offline-banner-warning {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(71, 39, 5, 0.45);
+}
+
+.sync-button {
+  min-width: 210px;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -680,6 +863,11 @@ button:disabled,
     grid-template-columns: 1fr;
   }
 
+  .offline-banner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   .button-group {
     flex-direction: column;
     gap: 0.7rem;
@@ -690,6 +878,10 @@ button:disabled,
   .save-btn,
   .address-btn {
     width: 100%;
+  }
+
+  .sync-button {
+    min-width: 0;
   }
 }
 </style>
