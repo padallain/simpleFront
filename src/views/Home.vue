@@ -15,6 +15,7 @@ const router = useRouter();
 const latitude = ref("");
 const clientCount = ref(0)
 const longitude = ref("");
+const adminKeyInput = ref("");
 const numberInput = ref(0);
 const textInput = ref("");
 const start = "08:00:00";
@@ -82,6 +83,7 @@ function validateClientForm() {
   const clientName = textInput.value.trim();
   const latitudeNumber = Number(latitude.value);
   const longitudeNumber = Number(longitude.value);
+  const adminKey = adminKeyInput.value.trim();
 
   resetFieldErrors();
 
@@ -97,16 +99,23 @@ function validateClientForm() {
     fieldErrors.value.clientName = message;
   }
 
-  if (!Number.isFinite(latitudeNumber)) {
-    const message = "Falta obtener la latitud.";
+  // Si se quiere ingresar lat/lon manualmente, requiere clave admin
+  if ((latitude.value !== '' || longitude.value !== '') && adminKey !== '4321') {
+    const message = "Clave de administrador requerida para ingresar coordenadas manualmente.";
     errors.push(message);
     fieldErrors.value.latitude = message;
-  }
-
-  if (!Number.isFinite(longitudeNumber)) {
-    const message = "Falta obtener la longitud.";
-    errors.push(message);
     fieldErrors.value.longitude = message;
+  } else {
+    if (!Number.isFinite(latitudeNumber)) {
+      const message = "Falta obtener la latitud.";
+      errors.push(message);
+      fieldErrors.value.latitude = message;
+    }
+    if (!Number.isFinite(longitudeNumber)) {
+      const message = "Falta obtener la longitud.";
+      errors.push(message);
+      fieldErrors.value.longitude = message;
+    }
   }
 
   return errors;
@@ -125,6 +134,7 @@ function resetClientForm() {
   longitude.value = "";
   numberInput.value = 0;
   textInput.value = "";
+  adminKeyInput.value = "";
   formErrors.value = [];
   resetFieldErrors();
 }
@@ -509,13 +519,17 @@ const goToDispatchStatus = () => {
 
         <div class="form-grid">
           <div class="form-group">
+            <label for="adminKeyInput">Clave admin</label>
+            <input id="adminKeyInput" type="password" v-model="adminKeyInput" maxlength="8" placeholder="Solo para edición manual" />
+          </div>
+          <div class="form-group">
             <label for="latitude">Latitud:</label>
-            <input id="latitude" :class="{ 'input-error': fieldErrors.latitude }" type="text" v-model="latitude" readonly />
+            <input id="latitude" :class="{ 'input-error': fieldErrors.latitude }" type="text" v-model="latitude" :readonly="adminKeyInput !== '4321'" />
             <p v-if="fieldErrors.latitude" class="field-error">{{ fieldErrors.latitude }}</p>
           </div>
           <div class="form-group">
             <label for="longitude">Longitud:</label>
-            <input id="longitude" :class="{ 'input-error': fieldErrors.longitude }" type="text" v-model="longitude" readonly />
+            <input id="longitude" :class="{ 'input-error': fieldErrors.longitude }" type="text" v-model="longitude" :readonly="adminKeyInput !== '4321'" />
             <p v-if="fieldErrors.longitude" class="field-error">{{ fieldErrors.longitude }}</p>
           </div>
           <div class="form-group">
