@@ -16,6 +16,9 @@ const latitude = ref("");
 const clientCount = ref(0)
 const longitude = ref("");
 const adminKeyInput = ref("");
+import { computed } from "vue";
+
+const isAdminMode = computed(() => adminKeyInput.value === "4321");
 const numberInput = ref(0);
 const textInput = ref("");
 const start = "08:00:00";
@@ -99,23 +102,16 @@ function validateClientForm() {
     fieldErrors.value.clientName = message;
   }
 
-  // Si se quiere ingresar lat/lon manualmente, requiere clave admin
-  if ((latitude.value !== '' || longitude.value !== '') && adminKey !== '4321') {
-    const message = "Clave de administrador requerida para ingresar coordenadas manualmente.";
+  // Solo advertir si los campos están vacíos, no exigir clave admin para guardar
+  if (!Number.isFinite(latitudeNumber)) {
+    const message = "Falta obtener la latitud.";
     errors.push(message);
     fieldErrors.value.latitude = message;
+  }
+  if (!Number.isFinite(longitudeNumber)) {
+    const message = "Falta obtener la longitud.";
+    errors.push(message);
     fieldErrors.value.longitude = message;
-  } else {
-    if (!Number.isFinite(latitudeNumber)) {
-      const message = "Falta obtener la latitud.";
-      errors.push(message);
-      fieldErrors.value.latitude = message;
-    }
-    if (!Number.isFinite(longitudeNumber)) {
-      const message = "Falta obtener la longitud.";
-      errors.push(message);
-      fieldErrors.value.longitude = message;
-    }
   }
 
   return errors;
@@ -524,14 +520,15 @@ const goToDispatchStatus = () => {
           </div>
           <div class="form-group">
             <label for="latitude">Latitud:</label>
-            <input id="latitude" :class="{ 'input-error': fieldErrors.latitude }" type="text" v-model="latitude" :readonly="adminKeyInput !== '4321'" />
+            <input id="latitude" :class="{ 'input-error': fieldErrors.latitude }" type="text" v-model="latitude" :readonly="!isAdminMode" />
             <p v-if="fieldErrors.latitude" class="field-error">{{ fieldErrors.latitude }}</p>
           </div>
           <div class="form-group">
             <label for="longitude">Longitud:</label>
-            <input id="longitude" :class="{ 'input-error': fieldErrors.longitude }" type="text" v-model="longitude" :readonly="adminKeyInput !== '4321'" />
+            <input id="longitude" :class="{ 'input-error': fieldErrors.longitude }" type="text" v-model="longitude" :readonly="!isAdminMode" />
             <p v-if="fieldErrors.longitude" class="field-error">{{ fieldErrors.longitude }}</p>
           </div>
+        
           <div class="form-group">
             <label for="numberInput">ID del cliente:</label>
             <input id="numberInput" :class="{ 'input-error': fieldErrors.clientId }" type="number" v-model="numberInput" min="1" @input="clearFieldError('clientId')" />
