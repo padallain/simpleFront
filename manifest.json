@@ -1,0 +1,21 @@
+{
+  "name": "Makeroute",
+  "short_name": "Makeroute",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1976d2",
+  "description": "App para rutas offline y online.",
+  "icons": [
+    {
+      "src": "/makeroute/public/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/makeroute/public/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

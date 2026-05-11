@@ -10,6 +10,9 @@ const driverName = ref("");
 const routeLabel = ref("");
 const routeWeight = ref(0);
 const paradaInput = ref("");
+const latInput = ref("");
+const lonInput = ref("");
+const adminKeyInput = ref("");
 const paradas = ref([]);
 const serverResponse = ref(null);
 const routeTable = ref([]);
@@ -176,30 +179,54 @@ function printRoutePDF() {
 
 async function agregarParada() {
   const clientId = paradaInput.value.trim();
+  const lat = latInput.value.trim();
+  const lon = lonInput.value.trim();
+  const adminKey = adminKeyInput.value.trim();
 
   if (!clientId) {
     errorMessage.value = "Ingresa un ID de cliente.";
     return;
   }
 
+  // Si se ingresan coordenadas, requiere clave admin
+  if ((lat || lon) && adminKey !== "4321") {
+    errorMessage.value = "Clave de administrador incorrecta para agregar coordenadas.";
+    return;
+  }
+
   let name = "No encontrado";
+  let location = null;
   errorMessage.value = "";
 
-  try {
-    const response = await fetch(`${API_BASE_URL}/getClient/${clientId}`);
-    if (response.ok) {
-      const data = await response.json();
-      name = data.nombre || "Cliente";
+  if (lat && lon && adminKey === "4321") {
+    // Agregar manualmente con coordenadas
+    name = "Agregado manual";
+    location = { latitude: lat, longitude: lon };
+  } else {
+    // Buscar cliente normalmente
+    try {
+      const response = await fetch(`${API_BASE_URL}/getClient/${clientId}`);
+      if (response.ok) {
+        const data = await response.json();
+        name = data.nombre || "Cliente";
+        if (data.location) {
+          location = data.location;
+        }
+      }
+    } catch (_error) {
+      name = "Error consultando";
     }
-  } catch (_error) {
-    name = "Error consultando";
   }
 
   paradas.value.push({
     parada: clientId,
     name,
+    location,
   });
   paradaInput.value = "";
+  latInput.value = "";
+  lonInput.value = "";
+  adminKeyInput.value = "";
 }
 
 function eliminarParada(idx) {
@@ -316,6 +343,28 @@ async function makeRoute() {
             placeholder="Agregar ID de cliente"
             class="route-input"
             @keyup.enter="agregarParada"
+          />
+          <el-input
+            v-model="latInput"
+            placeholder="Latitud (opcional, admin)"
+            class="route-input"
+            style="max-width: 140px;"
+            @keyup.enter="agregarParada"
+          />
+          <el-input
+            v-model="lonInput"
+            placeholder="Longitud (opcional, admin)"
+            class="route-input"
+            style="max-width: 140px;"
+            @keyup.enter="agregarParada"
+          />
+          <el-input
+            v-model="adminKeyInput"
+            placeholder="Clave admin (4321)"
+            class="route-input"
+            style="max-width: 120px;"
+            @keyup.enter="agregarParada"
+            show-password
           />
           <el-button type="primary" class="route-action-button" @click="agregarParada">Agregar</el-button>
         </div>
