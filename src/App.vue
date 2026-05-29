@@ -26,6 +26,14 @@ function goToClientReport() {
 function goToClientLocationReports() {
   router.push('/client-location-reports')
 }
+
+function goToDriverAnalytics() {
+  router.push('/driver-analytics')
+}
+
+function goToVehicleMaintenance() {
+  router.push('/vehicle-maintenance-history')
+}
 </script>
 
 <template>
@@ -46,6 +54,12 @@ function goToClientLocationReports() {
         </button>
         <button @click="goToClientLocationReports" class="top-nav-button">
           Ver denuncias
+        </button>
+        <button @click="goToDriverAnalytics" class="top-nav-button">
+          Analisis choferes
+        </button>
+        <button @click="goToVehicleMaintenance" class="top-nav-button">
+          Historial mantenimiento
         </button>
       </div>
     </template>

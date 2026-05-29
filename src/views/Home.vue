@@ -19,7 +19,7 @@ const adminKeyInput = ref("");
 import { computed } from "vue";
 
 const isAdminMode = computed(() => adminKeyInput.value === "4321");
-const numberInput = ref(0);
+const numberInput = ref("");
 const textInput = ref("");
 const start = "08:00:00";
 const end = "17:00:00";
@@ -128,7 +128,7 @@ function refreshPendingClientCount() {
 function resetClientForm() {
   latitude.value = "";
   longitude.value = "";
-  numberInput.value = 0;
+  numberInput.value = "";
   textInput.value = "";
   adminKeyInput.value = "";
   formErrors.value = [];
@@ -531,7 +531,7 @@ const goToDispatchStatus = () => {
         
           <div class="form-group">
             <label for="numberInput">ID del cliente:</label>
-            <input id="numberInput" :class="{ 'input-error': fieldErrors.clientId }" type="number" v-model="numberInput" min="1" @input="clearFieldError('clientId')" />
+            <input id="numberInput" :class="{ 'input-error': fieldErrors.clientId }" type="text" inputmode="numeric" v-model="numberInput" placeholder="Ej. 0504036749" @input="clearFieldError('clientId')" />
             <p v-if="fieldErrors.clientId" class="field-error">{{ fieldErrors.clientId }}</p>
           </div>
           <div class="form-group">

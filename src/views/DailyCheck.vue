@@ -12,6 +12,9 @@
         <RouterLink class="history-link" to="/daily-check-history">
           Ver historial de reportes
         </RouterLink>
+        <RouterLink class="history-link" to="/vehicle-maintenance-history">
+          Historial de mantenimiento
+        </RouterLink>
       </div>
 
       <div class="stats-grid">

@@ -11,6 +11,7 @@ const routeAdminError = ref("");
 const editingRouteId = ref("");
 const savingRouteId = ref("");
 const deletingRouteId = ref("");
+const completingRouteId = ref("");
 const editRouteForm = reactive({
   driverId: "",
   driverName: "",
@@ -149,6 +150,73 @@ async function saveRoute(route) {
   }
 }
 
+async function completeRoute(route) {
+  const routeId = String(route?._id || "");
+
+  if (!routeId) {
+    routeAdminError.value = "La ruta no tiene un folio valido.";
+    return;
+  }
+
+  if (!canManageRoutes.value) {
+    routeAdminError.value = "Ingresa la clave interna para completar la ruta.";
+    return;
+  }
+
+  if (route?.status === "completed") {
+    routeAdminFeedback.value = `La ruta ${route.routeLabel || routeId} ya esta completada.`;
+    routeAdminError.value = "";
+    return;
+  }
+
+  const confirmed = window.confirm(`Se marcara la ruta ${route.routeLabel || routeId} como terminada. Deseas continuar?`);
+
+  if (!confirmed) {
+    return;
+  }
+
+  completingRouteId.value = routeId;
+  routeAdminError.value = "";
+  routeAdminFeedback.value = "";
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/internal/admin/routes/${routeId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-delete-key": adminKey.value.trim(),
+      },
+      body: JSON.stringify({
+        driverId: String(route?.driverId || "").trim(),
+        driverName: String(route?.driverName || "").trim(),
+        routeLabel: String(route?.routeLabel || "").trim(),
+        totalWeight: Number(route?.totalWeight) || 0,
+        status: "completed",
+      }),
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      routeAdminError.value = result?.message || "No se pudo completar la ruta.";
+      return;
+    }
+
+    savedRoutes.value = savedRoutes.value.map((currentRoute) => (
+      currentRoute._id === routeId ? result.route : currentRoute
+    ));
+
+    if (editingRouteId.value === routeId) {
+      editRouteForm.status = "completed";
+    }
+
+    routeAdminFeedback.value = `Ruta ${routeId} marcada como completada.`;
+  } catch (error) {
+    routeAdminError.value = `Error completando ruta: ${error.message}`;
+  } finally {
+    completingRouteId.value = "";
+  }
+}
+
 async function deleteRoute(route) {
   const routeId = String(route?._id || "");
 
@@ -254,12 +322,23 @@ async function deleteRoute(route) {
             </div>
 
             <div class="saved-route-actions">
-              <button class="route-secondary-button" @click="startRouteEdit(savedRoute)">
+              <button
+                class="route-secondary-button"
+                :disabled="completingRouteId === savedRoute._id || deletingRouteId === savedRoute._id"
+                @click="startRouteEdit(savedRoute)"
+              >
                 {{ editingRouteId === savedRoute._id ? "Editando" : "Editar ruta" }}
               </button>
               <button
+                class="admin-button"
+                :disabled="savedRoute.status === 'completed' || completingRouteId === savedRoute._id || deletingRouteId === savedRoute._id"
+                @click="completeRoute(savedRoute)"
+              >
+                {{ completingRouteId === savedRoute._id ? "Completando..." : savedRoute.status === "completed" ? "Ruta completada" : "Completar ruta" }}
+              </button>
+              <button
                 class="route-danger-button"
-                :disabled="deletingRouteId === savedRoute._id"
+                :disabled="deletingRouteId === savedRoute._id || completingRouteId === savedRoute._id"
                 @click="deleteRoute(savedRoute)"
               >
                 {{ deletingRouteId === savedRoute._id ? "Eliminando..." : "Eliminar ruta" }}

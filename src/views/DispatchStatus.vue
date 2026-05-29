@@ -117,6 +117,9 @@ onMounted(() => {
           <button class="primary-button" type="button" :disabled="loading" @click="loadDispatchStatuses">
             {{ loading ? "Actualizando..." : "Actualizar" }}
           </button>
+          <RouterLink class="secondary-link" to="/driver-analytics">
+            Analisis choferes
+          </RouterLink>
           <RouterLink class="secondary-link" to="/route-management">
             Administrar rutas
           </RouterLink>
