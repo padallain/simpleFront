@@ -1,6 +1,6 @@
-const DEFAULT_LOCAL_API_BASE_URL = "http://localhost:8000";
+const DEFAULT_LOCAL_API_BASE_URL = "http://localhost:9000";
 const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || DEFAULT_LOCAL_API_BASE_URL).replace(/\/$/, "");
-const fallbackApiBaseUrl = DEFAULT_LOCAL_API_BASE_URL;
+const fallbackApiBaseUrl = (import.meta.env.VITE_LOCAL_API_BASE_URL || DEFAULT_LOCAL_API_BASE_URL).replace(/\/$/, "");
 
 async function requestWithFallback(path, options = {}) {
   const primaryUrl = `${configuredApiBaseUrl}${path}`;
