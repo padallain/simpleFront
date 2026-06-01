@@ -5,11 +5,13 @@ import {
   createVehicleMaintenance,
   deleteVehicleMaintenanceById,
   fetchRecentVehicleMaintenance,
+  fetchUpcomingVehicleMaintenance,
   fetchVehicleMaintenanceByPlaca,
   updateVehicleMaintenanceById,
 } from "../services/vehicleMaintenanceApi";
 
 const maintenanceRecords = ref([]);
+const upcomingMaintenance = ref([]);
 const placaBusqueda = ref("");
 const adminKey = ref("");
 const loading = ref(false);
@@ -79,6 +81,24 @@ function formatCurrency(value, currency = "USD") {
     currency: currency || "USD",
     maximumFractionDigits: 2,
   }).format(Number(value) || 0);
+}
+
+function formatUpcomingStatus(record) {
+  const daysUntilService = Number(record?.daysUntilService);
+
+  if (!Number.isFinite(daysUntilService)) {
+    return "Sin fecha calculable";
+  }
+
+  if (daysUntilService < 0) {
+    return `Atrasado por ${Math.abs(daysUntilService)} dia(s)`;
+  }
+
+  if (daysUntilService === 0) {
+    return "Programado para hoy";
+  }
+
+  return `Faltan ${daysUntilService} dia(s)`;
 }
 
 function syncCostWithItems() {
@@ -180,6 +200,15 @@ async function loadRecentMaintenance() {
   }
 }
 
+async function loadUpcomingMaintenance() {
+  try {
+    const result = await fetchUpcomingVehicleMaintenance();
+    upcomingMaintenance.value = Array.isArray(result?.mantenimientos) ? result.mantenimientos : [];
+  } catch (_error) {
+    upcomingMaintenance.value = [];
+  }
+}
+
 async function searchByPlaca() {
   const placa = placaBusqueda.value.trim();
 
@@ -209,9 +238,16 @@ async function searchByPlaca() {
 
 async function submitMaintenance() {
   const payload = normalizePayload(maintenanceForm);
+  const normalizedAdminKey = adminKey.value.trim();
 
   if (!payload.placa || !payload.titulo || !payload.tipoServicio || !payload.fechaServicio) {
     errorMessage.value = "Placa, titulo, tipo de servicio y fecha del servicio son obligatorios.";
+    feedbackMessage.value = "";
+    return;
+  }
+
+  if (!normalizedAdminKey) {
+    errorMessage.value = "Ingresa la clave interna para guardar el mantenimiento.";
     feedbackMessage.value = "";
     return;
   }
@@ -222,19 +258,17 @@ async function submitMaintenance() {
 
   try {
     if (editingRecordId.value) {
-      if (!adminKey.value.trim()) {
-        throw new Error("Ingresa la clave interna para editar el mantenimiento.");
-      }
-
       savingRecordId.value = editingRecordId.value;
-      const result = await updateVehicleMaintenanceById(editingRecordId.value, payload, adminKey.value.trim());
+      const result = await updateVehicleMaintenanceById(editingRecordId.value, payload, normalizedAdminKey);
       maintenanceRecords.value = maintenanceRecords.value.map((record) => (
         record._id === editingRecordId.value ? result.maintenance : record
       ));
+      await loadUpcomingMaintenance();
       feedbackMessage.value = `Mantenimiento ${editingRecordId.value} actualizado correctamente.`;
     } else {
-      const result = await createVehicleMaintenance(payload);
+      const result = await createVehicleMaintenance(payload, normalizedAdminKey);
       maintenanceRecords.value = [result.maintenance, ...maintenanceRecords.value];
+      await loadUpcomingMaintenance();
       feedbackMessage.value = `Mantenimiento de ${payload.placa} guardado correctamente.`;
     }
 
@@ -273,6 +307,7 @@ async function deleteRecord(record) {
   try {
     await deleteVehicleMaintenanceById(recordId, adminKey.value.trim());
     maintenanceRecords.value = maintenanceRecords.value.filter((item) => item._id !== recordId);
+    await loadUpcomingMaintenance();
     feedbackMessage.value = `Mantenimiento ${recordId} eliminado correctamente.`;
 
     if (editingRecordId.value === recordId) {
@@ -287,6 +322,7 @@ async function deleteRecord(record) {
 
 onMounted(() => {
   loadRecentMaintenance();
+  loadUpcomingMaintenance();
   syncCostWithItems();
 });
 </script>
@@ -336,6 +372,37 @@ onMounted(() => {
           <small>Calculado desde el formulario actual</small>
         </article>
       </div>
+
+      <section class="panel-card upcoming-panel">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Pendientes por cercania</p>
+            <h2>Proximos mantenimientos</h2>
+          </div>
+          <span class="status-pill">{{ upcomingMaintenance.length }} pendientes</span>
+        </div>
+
+        <p v-if="!upcomingMaintenance.length" class="feedback">
+          No hay proximos mantenimientos programados por ahora.
+        </p>
+
+        <div v-else class="upcoming-grid">
+          <article v-for="record in upcomingMaintenance" :key="`upcoming-${record._id}`" class="upcoming-card" :class="record.isOverdue ? 'upcoming-card-overdue' : ''">
+            <div>
+              <p class="plate-badge">{{ record.placa }}</p>
+              <h3>{{ record.titulo }}</h3>
+              <p class="record-meta">{{ record.modelo || 'Modelo no registrado' }} · {{ record.tipoServicio }}</p>
+            </div>
+
+            <div class="upcoming-copy">
+              <span><strong>Proximo servicio:</strong> {{ formatDate(record.fechaProximoServicio) }}</span>
+              <span><strong>Estado:</strong> {{ formatUpcomingStatus(record) }}</span>
+              <span><strong>Km actual:</strong> {{ record.kilometraje || 0 }}</span>
+              <span><strong>Taller:</strong> {{ record.taller || 'No indicado' }}</span>
+            </div>
+          </article>
+        </div>
+      </section>
 
       <div class="maintenance-layout">
         <section class="panel-card form-panel">
@@ -463,7 +530,7 @@ onMounted(() => {
             </div>
 
             <div class="form-actions">
-              <button class="primary-button" type="submit" :disabled="submitting || savingRecordId === editingRecordId">
+              <button class="primary-button" type="submit" :disabled="submitting || (Boolean(editingRecordId) && savingRecordId === editingRecordId)">
                 {{ submitting ? 'Guardando...' : editingRecordId ? 'Guardar cambios' : 'Guardar mantenimiento' }}
               </button>
             </div>
@@ -629,6 +696,32 @@ onMounted(() => {
 .maintenance-layout {
   grid-template-columns: minmax(340px, 460px) minmax(0, 1fr);
   align-items: start;
+}
+
+.upcoming-grid {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+
+.upcoming-card {
+  padding: 1rem;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 176, 103, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.upcoming-card-overdue {
+  border-color: rgba(255, 120, 120, 0.32);
+  background: rgba(255, 120, 120, 0.07);
+}
+
+.upcoming-copy {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.8rem;
+  color: rgba(238, 244, 251, 0.78);
 }
 
 .summary-card {

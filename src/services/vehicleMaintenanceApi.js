@@ -30,11 +30,12 @@ async function parseResponse(response, defaultMessage) {
   return result;
 }
 
-export async function createVehicleMaintenance(payload) {
+export async function createVehicleMaintenance(payload, adminKey) {
   const response = await requestWithFallback(`/vehicle-maintenance`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "x-admin-delete-key": adminKey,
     },
     body: JSON.stringify(payload),
   });
@@ -45,6 +46,11 @@ export async function createVehicleMaintenance(payload) {
 export async function fetchRecentVehicleMaintenance(limit = 30) {
   const response = await requestWithFallback(`/vehicle-maintenance?limit=${limit}`);
   return parseResponse(response, "No se pudo cargar el historial de mantenimiento");
+}
+
+export async function fetchUpcomingVehicleMaintenance(limit = 20) {
+  const response = await requestWithFallback(`/vehicle-maintenance/upcoming?limit=${limit}`);
+  return parseResponse(response, "No se pudo cargar la lista de proximos mantenimientos");
 }
 
 export async function fetchVehicleMaintenanceByPlaca(placa) {
