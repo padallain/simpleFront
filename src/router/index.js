@@ -15,7 +15,10 @@ import RouteDispatchIssueSummary from "../views/RouteDispatchIssueSummary.vue";
 import RouteManagement from "../views/RouteManagement.vue";
 import DispatchStatus from "../views/DispatchStatus.vue";
 import DriverAnalytics from "../views/DriverAnalytics.vue";
+import WarehousePickerAnalytics from "../views/WarehousePickerAnalytics.vue";
+import WarehousePicking from "../views/WarehousePicking.vue";
 import VehicleMaintenanceHistory from "../views/VehicleMaintenanceHistory.vue";
+import DispatchControl from "../views/DispatchControl.vue";
 
 
 const routes = [
@@ -29,7 +32,10 @@ const routes = [
   { path: "/driver-route", component: DriverRoute },
   { path: "/driver-route/:routeId/issues-summary", component: RouteDispatchIssueSummary },
   { path: "/dispatch-status", component: DispatchStatus },
+  { path: "/dispatch-control", component: DispatchControl },
   { path: "/driver-analytics", component: DriverAnalytics },
+  { path: "/warehouse-picker-analytics", component: WarehousePickerAnalytics },
+  { path: "/warehouse-picking", component: WarehousePicking },
   { path: "/vehicle-maintenance-history", component: VehicleMaintenanceHistory },
   { path: "/report-client-location", component: ReportClientLocation },
   { path: "/route-management", component: RouteManagement },

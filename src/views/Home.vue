@@ -460,6 +460,10 @@ const goToDispatchStatus = () => {
   router.push('/dispatch-status');
 };
 
+const goToWarehousePicking = () => {
+  router.push('/warehouse-picking');
+};
+
 </script>
 
 <template>
@@ -495,6 +499,11 @@ const goToDispatchStatus = () => {
           <span class="count-label">Despachos</span>
           <strong class="shortcut-title">Estatus</strong>
           <button class="shortcut-button" @click="goToDispatchStatus">Ver rutas</button>
+        </div>
+        <div class="count-card shortcut-card">
+          <span class="count-label">Picking</span>
+          <strong class="shortcut-title">Registrar</strong>
+          <button class="shortcut-button" @click="goToWarehousePicking">Ir a picking</button>
         </div>
       </div>
 

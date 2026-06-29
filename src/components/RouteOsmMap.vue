@@ -20,6 +20,10 @@ const props = defineProps({
     type: Object,
     default: () => ({ latitude: 10.578208693113535, longitude: -71.67338068775426 }),
   },
+  returnToOrigin: {
+    type: Boolean,
+    default: true,
+  },
 });
 
 const mapElement = ref(null);
@@ -91,6 +95,10 @@ function renderMapData() {
     markerLayer.addLayer(marker);
     points.push([stop.latitude, stop.longitude]);
   });
+
+  if (props.returnToOrigin && normalizedStops.value.length > 0 && Number.isFinite(originLat) && Number.isFinite(originLng)) {
+    points.push([originLat, originLng]);
+  }
 
   if (points.length > 1) {
     polylineLayer.addLayer(L.polyline(points, {

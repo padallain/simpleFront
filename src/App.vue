@@ -31,6 +31,14 @@ function goToDriverAnalytics() {
   router.push('/driver-analytics')
 }
 
+function goToWarehousePickerAnalytics() {
+  router.push('/warehouse-picker-analytics')
+}
+
+function goToDispatchControl() {
+  router.push('/dispatch-control')
+}
+
 function goToVehicleMaintenance() {
   router.push('/vehicle-maintenance-history')
 }
@@ -57,6 +65,12 @@ function goToVehicleMaintenance() {
         </button>
         <button @click="goToDriverAnalytics" class="top-nav-button">
           Analisis choferes
+        </button>
+        <button @click="goToWarehousePickerAnalytics" class="top-nav-button">
+          Analisis almacenistas
+        </button>
+        <button @click="goToDispatchControl" class="top-nav-button">
+          Dispatch control
         </button>
         <button @click="goToVehicleMaintenance" class="top-nav-button">
           Historial mantenimiento
