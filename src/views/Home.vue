@@ -21,6 +21,19 @@ import { computed } from "vue";
 const isAdminMode = computed(() => adminKeyInput.value === "4321");
 const numberInput = ref("");
 const textInput = ref("");
+const sucursalInput = ref("");
+
+// --- Búsqueda de sedes de cadena ---
+const cadenaSearchId = ref("");
+const cadenaSearchResult = ref(null);
+const cadenaSearchError = ref("");
+const cadenaSearching = ref(false);
+const nuevaSedeNombre = ref("");
+const nuevaSedeLatitud = ref("");
+const nuevaSedeLogitud = ref("");
+const guardandoSede = ref(false);
+const sedeFeedback = ref(null);
+const showCadenaSection = ref(false);
 const start = "08:00:00";
 const end = "17:00:00";
 const serverResponse = ref(null);
@@ -130,9 +143,84 @@ function resetClientForm() {
   longitude.value = "";
   numberInput.value = "";
   textInput.value = "";
+  sucursalInput.value = "";
   adminKeyInput.value = "";
   formErrors.value = [];
   resetFieldErrors();
+}
+
+async function buscarSedes() {
+  const id = cadenaSearchId.value.trim();
+  if (!id) {
+    cadenaSearchError.value = "Ingresa un ID para buscar.";
+    return;
+  }
+  cadenaSearching.value = true;
+  cadenaSearchError.value = "";
+  cadenaSearchResult.value = null;
+  sedeFeedback.value = null;
+  nuevaSedeNombre.value = "";
+  nuevaSedeLatitud.value = "";
+  nuevaSedeLogitud.value = "";
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/getClient/${id}/sedes`);
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      cadenaSearchError.value = data?.message || "Cliente no encontrado.";
+    } else {
+      cadenaSearchResult.value = data;
+    }
+  } catch {
+    cadenaSearchError.value = "No se pudo conectar con el servidor.";
+  } finally {
+    cadenaSearching.value = false;
+  }
+}
+
+async function guardarNuevaSede() {
+  if (!cadenaSearchResult.value) return;
+  const sucursal = nuevaSedeNombre.value.trim();
+  const lat = Number(nuevaSedeLatitud.value);
+  const lon = Number(nuevaSedeLogitud.value);
+
+  if (!sucursal || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+    sedeFeedback.value = { type: "error", message: "Nombre de sede, latitud y longitud son obligatorios." };
+    return;
+  }
+
+  guardandoSede.value = true;
+  sedeFeedback.value = null;
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/registerClient`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: cadenaSearchResult.value.id,
+        nombre: cadenaSearchResult.value.nombre,
+        sucursal,
+        latitude: lat,
+        longitude: lon,
+        start: "08:00:00",
+        end: "17:00:00",
+      }),
+    });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      sedeFeedback.value = { type: "success", message: `Sede "${sucursal}" registrada.` };
+      nuevaSedeNombre.value = "";
+      nuevaSedeLatitud.value = "";
+      nuevaSedeLogitud.value = "";
+      await buscarSedes();
+    } else {
+      sedeFeedback.value = { type: "error", message: data?.message || "No se pudo registrar la sede." };
+    }
+  } catch {
+    sedeFeedback.value = { type: "error", message: "Error de conexion con el servidor." };
+  } finally {
+    guardandoSede.value = false;
+  }
 }
 
 async function submitClientPayload(payload) {
@@ -316,6 +404,7 @@ const saveClient = async () => {
   const payload = {
     id: numberInput.value.toString().trim(),
     nombre: textInput.value,
+    sucursal: sucursalInput.value.trim(),
     latitude: parseFloat(latitude.value),
     longitude: parseFloat(longitude.value),
     start,
@@ -404,11 +493,10 @@ const getClientAddress = async () => {
 
     if (response.ok) {
       clientData.value = result;
-      setServerResponse(
-        "info",
-        "Cliente encontrado",
-        `Se cargaron los datos del cliente ${clientId.trim()}.`,
-      );
+      const title = result?.esCadena
+        ? `Cadena encontrada — ${result.totalSedes} sedes registradas`
+        : "Cliente encontrado";
+      setServerResponse("info", title, `Datos del cliente ${clientId.trim()}.`);
     } else {
       clientData.value = null;
       setServerResponse(
@@ -463,6 +551,7 @@ const goToDispatchStatus = () => {
 const goToWarehousePicking = () => {
   router.push('/warehouse-picking');
 };
+
 
 </script>
 
@@ -548,6 +637,10 @@ const goToWarehousePicking = () => {
             <input id="textInput" :class="{ 'input-error': fieldErrors.clientName }" type="text" v-model="textInput" maxlength="80" @input="clearFieldError('clientName')" />
             <p v-if="fieldErrors.clientName" class="field-error">{{ fieldErrors.clientName }}</p>
           </div>
+          <div class="form-group">
+            <label for="sucursalInput">Sede (solo para cadenas)</label>
+            <input id="sucursalInput" type="text" v-model="sucursalInput" maxlength="60" placeholder="Ej. Sede Norte — dejar vacío si no es cadena" />
+          </div>
         </div>
 
         <div v-if="formErrors.length" class="validation-card">
@@ -558,9 +651,71 @@ const goToWarehousePicking = () => {
         </div>
 
         <div class="button-group">
-      <button class="geo-btn" @click="getGeolocation">Obtener Geolocalización</button>
-      <button class="save-btn" :disabled="isSaving" @click="saveClient">{{ isSaving ? "Guardando..." : "Guardar Cliente" }}</button>
-      <button class="address-btn" :disabled="isFetchingClient" @click="getClientAddress">{{ isFetchingClient ? "Consultando..." : "Obtener Dirección del Cliente" }}</button>
+          <button class="geo-btn" @click="getGeolocation">Obtener Geolocalización</button>
+          <button class="save-btn" :disabled="isSaving" @click="saveClient">{{ isSaving ? "Guardando..." : "Guardar Cliente" }}</button>
+          <button class="address-btn" :disabled="isFetchingClient" @click="getClientAddress">{{ isFetchingClient ? "Consultando..." : "Obtener Dirección del Cliente" }}</button>
+        </div>
+
+        <!-- Sección de cadenas y sedes -->
+        <div class="cadena-toggle-row">
+          <button class="cadena-toggle-btn" type="button" @click="showCadenaSection = !showCadenaSection">
+            {{ showCadenaSection ? '▲ Ocultar sedes de cadena' : '▼ Ver / agregar sedes de una cadena' }}
+          </button>
+        </div>
+
+        <div v-if="showCadenaSection" class="cadena-section">
+          <p class="cadena-desc">Busca un cliente por ID para ver todas sus sedes registradas o agregar una nueva.</p>
+
+          <div class="cadena-search-row">
+            <input
+              v-model="cadenaSearchId"
+              type="text"
+              placeholder="ID del cliente cadena"
+              class="cadena-input"
+              @keyup.enter="buscarSedes"
+            />
+            <button class="save-btn cadena-search-btn" :disabled="cadenaSearching" @click="buscarSedes">
+              {{ cadenaSearching ? 'Buscando...' : 'Buscar' }}
+            </button>
+          </div>
+
+          <p v-if="cadenaSearchError" class="field-error">{{ cadenaSearchError }}</p>
+
+          <div v-if="cadenaSearchResult" class="cadena-result">
+            <p class="cadena-result-title">
+              <strong>{{ cadenaSearchResult.nombre }}</strong>
+              — {{ cadenaSearchResult.totalSedes }} sede(s) registrada(s)
+            </p>
+
+            <div class="sedes-grid">
+              <a
+                v-for="sede in cadenaSearchResult.sedes"
+                :key="sede.sucursal || '_'"
+                :href="sede.googleMapsLink || '#'"
+                target="_blank"
+                class="sede-chip"
+                :title="sede.googleMapsLink ? 'Ver en Google Maps' : ''"
+              >
+                <strong>{{ sede.sucursal || 'Principal' }}</strong>
+                <span>{{ sede.location?.latitude?.toFixed(4) }}, {{ sede.location?.longitude?.toFixed(4) }}</span>
+              </a>
+            </div>
+
+            <div class="nueva-sede-form">
+              <p class="nueva-sede-label">Agregar nueva sede a <strong>{{ cadenaSearchResult.nombre }}</strong>:</p>
+              <div class="nueva-sede-grid">
+                <input v-model="nuevaSedeNombre" type="text" placeholder="Nombre de la sede (ej. Sede Este)" class="cadena-input" />
+                <input v-model="nuevaSedeLatitud" type="number" step="any" placeholder="Latitud" class="cadena-input" />
+                <input v-model="nuevaSedeLogitud" type="number" step="any" placeholder="Longitud" class="cadena-input" />
+              </div>
+              <button class="save-btn" :disabled="guardandoSede" @click="guardarNuevaSede">
+                {{ guardandoSede ? 'Registrando...' : 'Registrar sede' }}
+              </button>
+              <p v-if="sedeFeedback" :class="['sede-feedback', sedeFeedback.type === 'success' ? 'sede-feedback-ok' : 'sede-feedback-err']">
+                {{ sedeFeedback.message }}
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -902,6 +1057,150 @@ button:disabled,
 
   .sync-button {
     min-width: 0;
+  }
+}
+
+/* ── Cadenas y sedes ─────────────────────────── */
+.cadena-toggle-row {
+  margin-top: 1.2rem;
+  display: flex;
+  justify-content: center;
+}
+
+.cadena-toggle-btn {
+  min-height: auto;
+  padding: 0.5rem 1.1rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  border-radius: 12px;
+  border: 1px solid rgba(159, 209, 255, 0.28);
+  background: rgba(69, 167, 255, 0.1);
+  color: #9fd1ff;
+  cursor: pointer;
+}
+
+.cadena-section {
+  margin-top: 1rem;
+  padding: 1.1rem;
+  border-radius: 18px;
+  border: 1px dashed rgba(159, 209, 255, 0.25);
+  background: rgba(69, 167, 255, 0.05);
+  display: grid;
+  gap: 0.9rem;
+}
+
+.cadena-desc {
+  margin: 0;
+  color: rgba(243, 246, 251, 0.7);
+  font-size: 0.9rem;
+}
+
+.cadena-search-row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.cadena-input {
+  flex: 1 1 160px;
+  padding: 0.75rem 0.9rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.96);
+  color: #1f2937;
+  font-size: 0.95rem;
+  box-sizing: border-box;
+}
+
+.cadena-search-btn {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.cadena-result {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.cadena-result-title {
+  margin: 0;
+  color: #f3f6fb;
+  font-size: 0.95rem;
+}
+
+.sedes-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.sede-chip {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(159, 209, 255, 0.2);
+  text-decoration: none;
+  color: #f3f6fb;
+  font-size: 0.88rem;
+  transition: background 0.15s;
+}
+
+.sede-chip:hover {
+  background: rgba(69, 167, 255, 0.16);
+}
+
+.sede-chip span {
+  color: rgba(243, 246, 251, 0.6);
+  font-size: 0.78rem;
+}
+
+.nueva-sede-form {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  border-radius: 14px;
+  border: 1px solid rgba(159, 209, 255, 0.15);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.nueva-sede-label {
+  margin: 0;
+  color: rgba(243, 246, 251, 0.8);
+  font-size: 0.9rem;
+}
+
+.nueva-sede-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.sede-feedback {
+  margin: 0;
+  font-size: 0.9rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 10px;
+}
+
+.sede-feedback-ok {
+  color: #8df0b4;
+  background: rgba(22, 52, 36, 0.5);
+}
+
+.sede-feedback-err {
+  color: #ffb4b4;
+  background: rgba(86, 26, 26, 0.4);
+}
+
+@media (max-width: 600px) {
+  .nueva-sede-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cadena-search-row {
+    flex-direction: column;
   }
 }
 </style>

@@ -14,6 +14,11 @@ const latInput = ref("");
 const lonInput = ref("");
 const adminKeyInput = ref("");
 const paradas = ref([]);
+const anchorClientId = ref("");
+const sedePickerVisible = ref(false);
+const sedePendingId = ref("");
+const sedePendingNombre = ref("");
+const sedeOpciones = ref([]);
 const serverResponse = ref(null);
 const routeTable = ref([]);
 const loading = ref(false);
@@ -26,7 +31,12 @@ const routeTypeOptions = [
   { value: "closest", label: "Mas cercana" },
   { value: "farthest", label: "Lejanos primero" },
   { value: "alphabetical", label: "Orden alfabetico" },
+  { value: "mirrored", label: "Espejo (zona contraria)" },
 ];
+
+function toggleAnchor(clientId) {
+  anchorClientId.value = anchorClientId.value === clientId ? "" : clientId;
+}
 
 const totalWeight = computed(() => Number(routeWeight.value) || 0);
 
@@ -177,6 +187,20 @@ function printRoutePDF() {
   doc.save("paradas_chofer.pdf");
 }
 
+function agregarSede(sede) {
+  paradas.value.push({
+    parada: sede.id,
+    name: sede.sucursal ? `${sede.nombre} — ${sede.sucursal}` : sede.nombre,
+    location: sede.location,
+    sucursal: sede.sucursal || "",
+  });
+  sedePickerVisible.value = false;
+  sedeOpciones.value = [];
+  sedePendingId.value = "";
+  sedePendingNombre.value = "";
+  paradaInput.value = "";
+}
+
 async function agregarParada() {
   const clientId = paradaInput.value.trim();
   const lat = latInput.value.trim();
@@ -188,41 +212,55 @@ async function agregarParada() {
     return;
   }
 
-  // Si se ingresan coordenadas, requiere clave admin
   if ((lat || lon) && adminKey !== "4321") {
     errorMessage.value = "Clave de administrador incorrecta para agregar coordenadas.";
     return;
   }
 
-  let name = "No encontrado";
-  let location = null;
   errorMessage.value = "";
 
   if (lat && lon && adminKey === "4321") {
-    // Agregar manualmente con coordenadas
-    name = "Agregado manual";
-    location = { latitude: lat, longitude: lon };
-  } else {
-    // Buscar cliente normalmente
-    try {
-      const response = await fetch(`${API_BASE_URL}/getClient/${clientId}`);
-      if (response.ok) {
-        const data = await response.json();
-        name = data.nombre || "Cliente";
-        if (data.location) {
-          location = data.location;
-        }
-      }
-    } catch (_error) {
-      name = "Error consultando";
-    }
+    paradas.value.push({
+      parada: clientId,
+      name: "Agregado manual",
+      location: { latitude: lat, longitude: lon },
+      sucursal: "",
+    });
+    paradaInput.value = "";
+    latInput.value = "";
+    lonInput.value = "";
+    adminKeyInput.value = "";
+    return;
   }
 
-  paradas.value.push({
-    parada: clientId,
-    name,
-    location,
-  });
+  try {
+    const response = await fetch(`${API_BASE_URL}/getClient/${clientId}`);
+    if (response.ok) {
+      const data = await response.json();
+
+      // Chain client: show branch picker
+      if (data.esCadena && Array.isArray(data.sedes) && data.sedes.length > 1) {
+        sedePendingId.value = data.id;
+        sedePendingNombre.value = data.nombre;
+        sedeOpciones.value = data.sedes;
+        sedePickerVisible.value = true;
+        return;
+      }
+
+      // Single-location client
+      paradas.value.push({
+        parada: clientId,
+        name: data.nombre || "Cliente",
+        location: data.location || null,
+        sucursal: data.sucursal || "",
+      });
+    } else {
+      paradas.value.push({ parada: clientId, name: "No encontrado", location: null, sucursal: "" });
+    }
+  } catch (_error) {
+    paradas.value.push({ parada: clientId, name: "Error consultando", location: null, sucursal: "" });
+  }
+
   paradaInput.value = "";
   latInput.value = "";
   lonInput.value = "";
@@ -230,6 +268,10 @@ async function agregarParada() {
 }
 
 function eliminarParada(idx) {
+  const removed = paradas.value[idx];
+  if (removed && removed.parada === anchorClientId.value) {
+    anchorClientId.value = "";
+  }
   paradas.value.splice(idx, 1);
 }
 
@@ -271,7 +313,11 @@ async function makeRoute() {
         routeLabel: routeLabel.value.trim(),
         routeType: selectedRouteType.value,
         routeWeight: Number(routeWeight.value) || 0,
-        stops: paradas.value.map((stop) => ({ clientId: stop.parada })),
+        anchorClientId: anchorClientId.value.trim() || undefined,
+        stops: paradas.value.map((stop) => ({
+          clientId: stop.parada,
+          ...(stop.sucursal ? { sucursal: stop.sucursal } : {}),
+        })),
       }),
     });
 
@@ -373,6 +419,12 @@ async function makeRoute() {
           <span><strong>Clientes unicos:</strong> {{ uniqueClientCount }}</span>
           <span><strong>Peso total:</strong> {{ totalWeight }}</span>
           <span><strong>Repetidos detectados:</strong> {{ duplicateClientIds.length }}</span>
+          <span v-if="anchorClientId" class="anchor-summary">
+            Ancla: <strong>{{ anchorClientId }}</strong>
+          </span>
+        </div>
+        <div v-if="anchorClientId" class="anchor-info-banner">
+          El cliente <strong>{{ anchorClientId }}</strong> sera la primera parada fija. La ruta optima se construye desde ahi. El espejo tambien lo respeta.
         </div>
         <div v-if="duplicateClientIds.length" class="warning-inline">
           IDs repetidos: {{ duplicateClientIds.join(", ") }}. Al guardar la ruta se consolidan en un solo cliente.
@@ -381,26 +433,61 @@ async function makeRoute() {
 
       <div class="routes-card">
         <div class="table-wrapper">
-          <el-table :data="paradas" class="responsive-table">
-      <el-table-column type="index" label="#" width="50" />
-      <el-table-column prop="parada" label="Parada" />
-      <el-table-column prop="name" label="Name" width="150" />
-      <el-table-column label="Acciones" width="100">
-        <template #default="scope">
-          <el-button
-            type="danger"
-            size="small"
-            @click="eliminarParada(scope.$index)"
-            >Eliminar</el-button
-          >
-        </template>
-      </el-table-column>
+          <el-table :data="paradas" class="responsive-table" :row-class-name="(row) => row.row.parada === anchorClientId ? 'anchor-row' : ''">
+            <el-table-column type="index" label="#" width="50" />
+            <el-table-column label="Ancla" width="90">
+              <template #default="scope">
+                <button
+                  class="anchor-btn"
+                  :class="{ 'anchor-btn-active': scope.row.parada === anchorClientId }"
+                  type="button"
+                  :title="scope.row.parada === anchorClientId ? 'Quitar ancla' : 'Marcar como cliente ancla (primera parada fija)'"
+                  @click="toggleAnchor(scope.row.parada)"
+                >
+                  {{ scope.row.parada === anchorClientId ? '⭐' : '☆' }}
+                </button>
+              </template>
+            </el-table-column>
+            <el-table-column prop="parada" label="Parada" />
+            <el-table-column prop="name" label="Nombre" width="150" />
+            <el-table-column label="Acciones" width="100">
+              <template #default="scope">
+                <el-button
+                  type="danger"
+                  size="small"
+                  @click="eliminarParada(scope.$index)"
+                >Eliminar</el-button>
+              </template>
+            </el-table-column>
           </el-table>
         </div>
 
         <el-button type="success" class="route-submit-button" :loading="loading" @click="makeRoute"
           >Crear y guardar ruta</el-button
         >
+      </div>
+
+      <div v-if="sedePickerVisible" class="routes-card sede-picker-card">
+        <div class="sede-picker-header">
+          <div>
+            <strong>Cliente cadena: {{ sedePendingNombre }}</strong>
+            <p class="share-copy">Este cliente tiene {{ sedeOpciones.length }} sedes. Selecciona la que vas a visitar.</p>
+          </div>
+          <button class="copy-button" type="button" @click="sedePickerVisible = false">Cancelar</button>
+        </div>
+        <div class="sede-option-grid">
+          <button
+            v-for="sede in sedeOpciones"
+            :key="sede.sucursal || sede._id"
+            type="button"
+            class="sede-option-btn"
+            @click="agregarSede(sede)"
+          >
+            <strong>{{ sede.sucursal || 'Sede principal' }}</strong>
+            <span>{{ sede.location?.latitude }}, {{ sede.location?.longitude }}</span>
+            <small>{{ sede.googleMapsLink ? 'Ver en mapa →' : '' }}</small>
+          </button>
+        </div>
       </div>
 
       <div v-if="errorMessage" class="routes-card error-card">
@@ -955,5 +1042,96 @@ async function makeRoute() {
   .result-table {
     min-width: 620px;
   }
+}
+
+.sede-picker-card {
+  border-color: rgba(96, 165, 250, 0.45);
+  background: rgba(20, 44, 82, 0.7);
+}
+
+.sede-picker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.sede-option-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.8rem;
+}
+
+.sede-option-btn {
+  display: grid;
+  gap: 0.3rem;
+  text-align: left;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(96, 165, 250, 0.28);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f3f6fb;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.sede-option-btn:hover {
+  background: rgba(69, 167, 255, 0.16);
+  border-color: rgba(69, 167, 255, 0.6);
+}
+
+.sede-option-btn span {
+  color: rgba(243, 246, 251, 0.65);
+  font-size: 0.85rem;
+}
+
+.sede-option-btn small {
+  color: #9fd1ff;
+  font-size: 0.8rem;
+}
+
+.anchor-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid rgba(159, 209, 255, 0.2);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.anchor-btn:hover {
+  background: rgba(255, 200, 60, 0.14);
+  border-color: rgba(255, 200, 60, 0.45);
+}
+
+.anchor-btn-active {
+  background: rgba(255, 200, 60, 0.18);
+  border-color: rgba(255, 200, 60, 0.65);
+  box-shadow: 0 0 0 2px rgba(255, 200, 60, 0.18);
+}
+
+.anchor-summary {
+  color: #f8ca5b;
+}
+
+.anchor-info-banner {
+  margin-top: 0.8rem;
+  padding: 0.85rem 1rem;
+  border-radius: 16px;
+  background: rgba(248, 202, 91, 0.1);
+  border: 1px solid rgba(248, 202, 91, 0.3);
+  color: #f8ca5b;
+  font-size: 0.95rem;
+}
+
+:deep(.anchor-row td) {
+  background: rgba(248, 202, 91, 0.07) !important;
 }
 </style>

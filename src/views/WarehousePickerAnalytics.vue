@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
@@ -78,7 +78,7 @@ function buildSummaryQuery() {
 
 async function loadWarehouseAnalytics() {
   if (!isUnlocked.value) {
-    errorMessage.value = "Debes ingresar la clave administrativa 4321 para ver el resumen.";
+    errorMessage.value = "Debes ingresar la clave administrativa correcta para ver el resumen.";
     feedbackMessage.value = "";
     resetData();
     return;
@@ -98,7 +98,13 @@ async function loadWarehouseAnalytics() {
 
     if (!response.ok) {
       resetData();
-      errorMessage.value = result?.message || "No se pudo cargar el resumen de almacenistas.";
+      if (response.status === 403) {
+        errorMessage.value = "Clave incorrecta. Verifica la clave administrativa.";
+      } else if (response.status === 404) {
+        errorMessage.value = "Endpoint no encontrado. Verifica que el servidor este actualizado.";
+      } else {
+        errorMessage.value = result?.message || `Error del servidor (${response.status}). Intenta de nuevo.`;
+      }
       return;
     }
 
@@ -116,6 +122,16 @@ async function loadWarehouseAnalytics() {
   }
 }
 
+watch(isUnlocked, (unlocked) => {
+  if (unlocked) {
+    loadWarehouseAnalytics();
+  } else {
+    resetData();
+    feedbackMessage.value = "Ingresa la clave administrativa para habilitar el resumen.";
+    errorMessage.value = "";
+  }
+});
+
 onMounted(() => {
   resetData();
 });
@@ -130,14 +146,14 @@ onMounted(() => {
           <h1>Resumen de almacenistas</h1>
           <p class="hero-copy">
             Consulta quien hizo mas picking, cuantas cajas movio y cuantos pedidos proceso por dia o por rango.
-            Esta vista solo se habilita con la clave administrativa 4321.
+            Esta vista requiere clave administrativa para habilitarse.
           </p>
         </div>
 
         <div class="hero-actions picker-actions">
           <label class="month-field admin-field">
             <span>Clave administrativa</span>
-            <input v-model="adminKeyInput" type="password" placeholder="4321" />
+            <input v-model="adminKeyInput" type="password" placeholder="Clave de acceso" autocomplete="current-password" />
           </label>
           <label class="toggle-field">
             <input v-model="useRange" type="checkbox" />
