@@ -558,46 +558,126 @@ const goToWarehousePicking = () => {
 <template>
   <section class="home-page">
     <div class="home-container">
-      <div class="home-hero">
-        <p class="home-kicker">Registro de clientes</p>
-        <h1 class="home-title">Geolocalización y alta de clientes</h1>
-        <p class="home-subtitle">Captura ubicación, registra clientes y consulta la dirección guardada desde una sola pantalla.</p>
+
+      <!-- ── Hero ──────────────────────────────────── -->
+      <header class="home-hero">
+        <div class="hero-status">
+          <span class="hero-status-dot" :class="isOnline ? 'dot-online' : 'dot-offline'"></span>
+          <span>{{ isOnline ? 'Conectado' : 'Sin conexión' }}</span>
+          <span class="hero-status-sep">·</span>
+          <span>MakeRoute</span>
+        </div>
+        <h1 class="home-title">
+          Alta y consulta
+          <span class="title-gradient">de clientes</span>
+        </h1>
+        <p class="home-subtitle">
+          Captura ubicaciones, registra clientes y consulta datos guardados desde una sola pantalla.
+        </p>
+      </header>
+
+      <!-- ── Stat bar ───────────────────────────────── -->
+      <div class="stat-bar">
+        <div class="stat-item">
+          <strong class="stat-number">{{ clientCount }}</strong>
+          <span class="stat-label">Clientes en BD</span>
+        </div>
+        <div class="stat-sep"></div>
+        <div class="stat-item">
+          <strong class="stat-number" :class="pendingClientCount > 0 ? 'stat-number-warn' : ''">{{ pendingClientCount }}</strong>
+          <span class="stat-label">Pendientes sync</span>
+        </div>
+        <div class="stat-sep stat-hide-sm"></div>
+        <div class="stat-item stat-item-status stat-hide-sm">
+          <span class="status-indicator" :class="isOnline ? 'status-online' : 'status-offline'"></span>
+          <span class="stat-label">{{ isOnline ? 'En línea' : 'Sin conexión' }}</span>
+        </div>
       </div>
 
-      <div class="home-stats">
-        <div class="count-card">
-          <span class="count-label">Clientes marcados</span>
-          <strong class="countClient">{{ clientCount }}</strong>
-        </div>
-        <div class="count-card shortcut-card">
-          <span class="count-label">Denuncias publicas</span>
-          <strong class="shortcut-title">Ver lista</strong>
-          <button class="shortcut-button" @click="goToClientLocationReports">Abrir denuncias</button>
-        </div>
-        <div class="count-card shortcut-card">
-          <span class="count-label">CRUD de rutas</span>
-          <strong class="shortcut-title">Administrar</strong>
-          <button class="shortcut-button" @click="goToRouteManagement">Abrir rutas</button>
-        </div>
-        <div class="count-card shortcut-card">
-          <span class="count-label">Chequeos de camiones</span>
-          <strong class="shortcut-title">Historial</strong>
-          <button class="shortcut-button" @click="goToDailyCheckHistory">Abrir historial</button>
-        </div>
-        <div class="count-card shortcut-card">
-          <span class="count-label">Despachos</span>
-          <strong class="shortcut-title">Estatus</strong>
-          <button class="shortcut-button" @click="goToDispatchStatus">Ver rutas</button>
-        </div>
-        <div class="count-card shortcut-card">
-          <span class="count-label">Picking</span>
-          <strong class="shortcut-title">Registrar</strong>
-          <button class="shortcut-button" @click="goToWarehousePicking">Ir a picking</button>
-        </div>
-      </div>
+      <!-- ── Module navigation ──────────────────────── -->
+      <nav class="modules-grid" aria-label="Módulos del sistema">
+        <button class="module-card" type="button" @click="goToClientLocationReports">
+          <span class="mod-icon" style="--c:#f59e0b;--b:rgba(245,158,11,0.12)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+          </span>
+          <span class="mod-text">
+            <strong>Denuncias</strong>
+            <em>Reportes públicos</em>
+          </span>
+          <span class="mod-chevron">›</span>
+        </button>
 
+        <button class="module-card" type="button" @click="goToRouteManagement">
+          <span class="mod-icon" style="--c:#60a5fa;--b:rgba(96,165,250,0.12)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+          </span>
+          <span class="mod-text">
+            <strong>Rutas</strong>
+            <em>Administrar</em>
+          </span>
+          <span class="mod-chevron">›</span>
+        </button>
+
+        <button class="module-card" type="button" @click="goToDailyCheckHistory">
+          <span class="mod-icon" style="--c:#34d399;--b:rgba(52,211,153,0.12)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+            </svg>
+          </span>
+          <span class="mod-text">
+            <strong>Chequeos</strong>
+            <em>Historial camiones</em>
+          </span>
+          <span class="mod-chevron">›</span>
+        </button>
+
+        <button class="module-card" type="button" @click="goToDispatchStatus">
+          <span class="mod-icon" style="--c:#a78bfa;--b:rgba(167,139,250,0.12)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>
+            </svg>
+          </span>
+          <span class="mod-text">
+            <strong>Despachos</strong>
+            <em>Estatus de rutas</em>
+          </span>
+          <span class="mod-chevron">›</span>
+        </button>
+
+        <button class="module-card module-card-wide" type="button" @click="goToWarehousePicking">
+          <span class="mod-icon" style="--c:#2dd4bf;--b:rgba(45,212,191,0.12)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
+            </svg>
+          </span>
+          <span class="mod-text">
+            <strong>Picking</strong>
+            <em>Registrar cajas y pedidos</em>
+          </span>
+          <span class="mod-chevron">›</span>
+        </button>
+      </nav>
+
+      <!-- ── Form card ──────────────────────────────── -->
       <div class="form-card">
-        <div class="offline-banner" :class="isOnline ? 'offline-banner-info' : 'offline-banner-warning'">
+        <div class="form-card-header">
+          <div class="form-header-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+              <line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>
+            </svg>
+          </div>
+          <div>
+            <h2 class="form-card-title">Alta de cliente</h2>
+            <p class="form-card-desc">Completa los datos para registrar o consultar un cliente.</p>
+          </div>
+        </div>
+
+        <div class="offline-banner" :class="isOnline ? '' : 'offline-banner-warning'">
           <div>
             <strong>{{ isOnline ? 'Modo sincronizable' : 'Modo sin internet' }}</strong>
             <p>
@@ -606,8 +686,8 @@ const goToWarehousePicking = () => {
                 : `Puedes capturar ubicaciones sin internet. Se guardaran localmente y luego se enviaran. Pendientes: ${pendingClientCount}.` }}
             </p>
           </div>
-          <button class="shortcut-button sync-button" :disabled="isSyncingPending || pendingClientCount === 0 || !isOnline" @click="syncPendingClients()">
-            {{ isSyncingPending ? "Sincronizando..." : "Sincronizar pendientes" }}
+          <button class="btn btn-secondary sync-button" :disabled="isSyncingPending || pendingClientCount === 0 || !isOnline" @click="syncPendingClients()">
+            {{ isSyncingPending ? "Sincronizando..." : "Sincronizar" }}
           </button>
         </div>
 
@@ -617,29 +697,28 @@ const goToWarehousePicking = () => {
             <input id="adminKeyInput" type="password" v-model="adminKeyInput" maxlength="8" placeholder="Solo para edición manual" />
           </div>
           <div class="form-group">
-            <label for="latitude">Latitud:</label>
+            <label for="latitude">Latitud</label>
             <input id="latitude" :class="{ 'input-error': fieldErrors.latitude }" type="text" v-model="latitude" :readonly="!isAdminMode" />
             <p v-if="fieldErrors.latitude" class="field-error">{{ fieldErrors.latitude }}</p>
           </div>
           <div class="form-group">
-            <label for="longitude">Longitud:</label>
+            <label for="longitude">Longitud</label>
             <input id="longitude" :class="{ 'input-error': fieldErrors.longitude }" type="text" v-model="longitude" :readonly="!isAdminMode" />
             <p v-if="fieldErrors.longitude" class="field-error">{{ fieldErrors.longitude }}</p>
           </div>
-        
           <div class="form-group">
-            <label for="numberInput">ID del cliente:</label>
+            <label for="numberInput">ID del cliente</label>
             <input id="numberInput" :class="{ 'input-error': fieldErrors.clientId }" type="text" inputmode="numeric" v-model="numberInput" placeholder="Ej. 0504036749" @input="clearFieldError('clientId')" />
             <p v-if="fieldErrors.clientId" class="field-error">{{ fieldErrors.clientId }}</p>
           </div>
           <div class="form-group">
-            <label for="textInput">Nombre del cliente:</label>
+            <label for="textInput">Nombre del cliente</label>
             <input id="textInput" :class="{ 'input-error': fieldErrors.clientName }" type="text" v-model="textInput" maxlength="80" @input="clearFieldError('clientName')" />
             <p v-if="fieldErrors.clientName" class="field-error">{{ fieldErrors.clientName }}</p>
           </div>
           <div class="form-group">
             <label for="sucursalInput">Sede (solo para cadenas)</label>
-            <input id="sucursalInput" type="text" v-model="sucursalInput" maxlength="60" placeholder="Ej. Sede Norte — dejar vacío si no es cadena" />
+            <input id="sucursalInput" type="text" v-model="sucursalInput" maxlength="60" placeholder="Sede Norte — dejar vacío si no es cadena" />
           </div>
         </div>
 
@@ -651,9 +730,9 @@ const goToWarehousePicking = () => {
         </div>
 
         <div class="button-group">
-          <button class="geo-btn" @click="getGeolocation">Obtener Geolocalización</button>
-          <button class="save-btn" :disabled="isSaving" @click="saveClient">{{ isSaving ? "Guardando..." : "Guardar Cliente" }}</button>
-          <button class="address-btn" :disabled="isFetchingClient" @click="getClientAddress">{{ isFetchingClient ? "Consultando..." : "Obtener Dirección del Cliente" }}</button>
+          <button class="btn btn-geo" type="button" @click="getGeolocation">Obtener ubicación</button>
+          <button class="btn btn-save" type="button" :disabled="isSaving" @click="saveClient">{{ isSaving ? "Guardando..." : "Guardar cliente" }}</button>
+          <button class="btn btn-query" type="button" :disabled="isFetchingClient" @click="getClientAddress">{{ isFetchingClient ? "Consultando..." : "Consultar cliente" }}</button>
         </div>
 
         <!-- Sección de cadenas y sedes -->
@@ -674,7 +753,7 @@ const goToWarehousePicking = () => {
               class="cadena-input"
               @keyup.enter="buscarSedes"
             />
-            <button class="save-btn cadena-search-btn" :disabled="cadenaSearching" @click="buscarSedes">
+            <button class="btn btn-save cadena-search-btn" type="button" :disabled="cadenaSearching" @click="buscarSedes">
               {{ cadenaSearching ? 'Buscando...' : 'Buscar' }}
             </button>
           </div>
@@ -708,7 +787,7 @@ const goToWarehousePicking = () => {
                 <input v-model="nuevaSedeLatitud" type="number" step="any" placeholder="Latitud" class="cadena-input" />
                 <input v-model="nuevaSedeLogitud" type="number" step="any" placeholder="Longitud" class="cadena-input" />
               </div>
-              <button class="save-btn" :disabled="guardandoSede" @click="guardarNuevaSede">
+              <button class="btn btn-save" type="button" :disabled="guardandoSede" @click="guardarNuevaSede">
                 {{ guardandoSede ? 'Registrando...' : 'Registrar sede' }}
               </button>
               <p v-if="sedeFeedback" :class="['sede-feedback', sedeFeedback.type === 'success' ? 'sede-feedback-ok' : 'sede-feedback-err']">
@@ -738,7 +817,7 @@ const goToWarehousePicking = () => {
         <pre>{{ typeof clientData === 'string' ? clientData : JSON.stringify(clientData, null, 2) }}</pre>
         <div v-if="clientData.googleMapsLink" class="maps-link-row">
           <input :value="clientData.googleMapsLink" type="text" readonly class="maps-link-input" />
-          <button class="shortcut-button maps-copy-button" @click="copyMapsLink">Copiar link</button>
+          <button class="btn btn-secondary maps-copy-button" type="button" @click="copyMapsLink">Copiar link</button>
           <a
             :href="clientData.googleMapsLink"
             target="_blank"
@@ -754,6 +833,7 @@ const goToWarehousePicking = () => {
 </template>
 
 <style scoped>
+/* ── Base ─────────────────────────────────────────── */
 .home-page {
   min-height: 100vh;
   padding: 2rem 1rem 3rem;
@@ -766,117 +846,303 @@ const goToWarehousePicking = () => {
 .home-container {
   max-width: 960px;
   margin: 0 auto;
-  padding: 0;
   text-align: center;
 }
 
+/* ── Hero ─────────────────────────────────────────── */
 .home-hero {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.75rem;
 }
 
-.home-kicker {
-  margin: 0 0 0.45rem;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
+.hero-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+  padding: 0.3rem 0.9rem;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(159, 209, 255, 0.14);
   font-size: 0.78rem;
-  color: #9fd1ff;
+  color: rgba(243, 246, 251, 0.6);
+}
+
+.hero-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-online {
+  background: #34d399;
+  box-shadow: 0 0 6px rgba(52, 211, 153, 0.7);
+}
+
+.dot-offline {
+  background: #f87171;
+  box-shadow: 0 0 6px rgba(248, 113, 113, 0.6);
+}
+
+.hero-status-sep {
+  opacity: 0.3;
 }
 
 .home-title {
   margin: 0;
   color: #f3f6fb;
-  font-size: clamp(2rem, 5vw, 3.1rem);
+  font-size: clamp(1.9rem, 4.5vw, 2.9rem);
+  line-height: 1.18;
+  letter-spacing: -0.02em;
+}
+
+.title-gradient {
+  background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .home-subtitle {
-  max-width: 720px;
-  margin: 0.9rem auto 0;
-  color: rgba(243, 246, 251, 0.76);
+  max-width: 580px;
+  margin: 0.8rem auto 0;
+  color: rgba(243, 246, 251, 0.58);
+  font-size: 0.97rem;
+  line-height: 1.6;
 }
 
-.home-stats {
+/* ── Stat bar ─────────────────────────────────────── */
+.stat-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
   margin-bottom: 1rem;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 1rem;
+  padding: 1rem 2rem;
+  border-radius: 20px;
+  background: rgba(10, 20, 36, 0.7);
+  border: 1px solid rgba(159, 209, 255, 0.12);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
 }
 
-.count-card,
-.form-card,
-.response-card {
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.stat-item-status {
+  flex-direction: row;
+  gap: 0.5rem;
+}
+
+.stat-number {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #f3f6fb;
+  line-height: 1;
+}
+
+.stat-number-warn {
+  color: #fbbf24;
+}
+
+.stat-label {
+  font-size: 0.72rem;
+  color: rgba(243, 246, 251, 0.42);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.stat-sep {
+  width: 1px;
+  height: 32px;
+  background: rgba(159, 209, 255, 0.1);
+  flex-shrink: 0;
+}
+
+.status-indicator {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-online {
+  background: #34d399;
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.55);
+}
+
+.status-offline {
+  background: #f87171;
+  box-shadow: 0 0 8px rgba(248, 113, 113, 0.5);
+}
+
+/* ── Module navigation ────────────────────────────── */
+.modules-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.module-card {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.95rem 1.1rem;
+  border-radius: 18px;
+  background: rgba(10, 20, 36, 0.7);
+  border: 1px solid rgba(159, 209, 255, 0.12);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: transform 0.18s, border-color 0.18s, box-shadow 0.18s;
+}
+
+.module-card:hover {
+  transform: translateX(3px);
+  border-color: rgba(159, 209, 255, 0.28);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+}
+
+.module-card-wide {
+  grid-column: 1 / -1;
+}
+
+.mod-icon {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: var(--b);
+  color: var(--c);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mod-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.mod-text strong {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #f3f6fb;
+  display: block;
+}
+
+.mod-text em {
+  font-size: 0.78rem;
+  font-style: normal;
+  color: rgba(243, 246, 251, 0.46);
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mod-chevron {
+  color: rgba(159, 209, 255, 0.3);
+  font-size: 1.5rem;
+  font-weight: 200;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color 0.18s, transform 0.18s;
+}
+
+.module-card:hover .mod-chevron {
+  color: rgba(159, 209, 255, 0.7);
+  transform: translateX(2px);
+}
+
+/* ── Form card ────────────────────────────────────── */
+.form-card {
+  padding: 1.5rem;
   border-radius: 24px;
   background: rgba(10, 20, 36, 0.7);
   border: 1px solid rgba(159, 209, 255, 0.14);
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.2);
 }
 
-.count-card {
-  padding: 1rem 1.2rem;
+.form-card-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid rgba(159, 209, 255, 0.08);
+  text-align: left;
 }
 
-.shortcut-card {
-  display: grid;
-  gap: 0.55rem;
-  align-content: center;
+.form-header-icon {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 14px;
+  background: rgba(96, 165, 250, 0.12);
+  color: #60a5fa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.count-label {
-  display: block;
-  color: rgba(243, 246, 251, 0.72);
-}
-
-.countClient {
-  display: block;
-  margin-top: 0.45rem;
+.form-card-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
   color: #f3f6fb;
-  font-size: 2rem;
 }
 
-.shortcut-title {
-  display: block;
-  color: #f3f6fb;
-  font-size: 1.35rem;
+.form-card-desc {
+  margin: 0.25rem 0 0;
+  font-size: 0.83rem;
+  color: rgba(243, 246, 251, 0.48);
 }
 
-.shortcut-button {
-  width: 100%;
-}
-
-.form-card {
-  padding: 1.2rem;
-}
-
+/* ── Offline banner ───────────────────────────────── */
 .offline-banner {
-  margin-bottom: 1rem;
-  padding: 0.95rem 1rem;
-  border-radius: 18px;
+  margin-bottom: 1.25rem;
+  padding: 0.9rem 1rem;
+  border-radius: 16px;
   display: flex;
   justify-content: space-between;
   gap: 1rem;
   align-items: center;
   text-align: left;
-  background: rgba(8, 17, 29, 0.7);
-  border: 1px solid rgba(159, 209, 255, 0.14);
+  background: rgba(8, 17, 29, 0.6);
+  border: 1px solid rgba(159, 209, 255, 0.1);
 }
 
 .offline-banner strong {
   color: #f3f6fb;
+  font-size: 0.9rem;
 }
 
 .offline-banner p {
-  margin: 0.35rem 0 0;
-  color: rgba(243, 246, 251, 0.76);
+  margin: 0.3rem 0 0;
+  color: rgba(243, 246, 251, 0.62);
+  font-size: 0.84rem;
 }
 
 .offline-banner-warning {
-  border-color: rgba(245, 158, 11, 0.45);
-  background: rgba(71, 39, 5, 0.45);
+  border-color: rgba(245, 158, 11, 0.38);
+  background: rgba(71, 39, 5, 0.38);
 }
 
 .sync-button {
-  min-width: 210px;
+  min-width: 130px;
+  flex-shrink: 0;
 }
 
+/* ── Form ─────────────────────────────────────────── */
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -891,114 +1157,162 @@ const goToWarehousePicking = () => {
 }
 
 label {
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.84rem;
   font-weight: 500;
-  color: #f3f6fb;
+  color: rgba(243, 246, 251, 0.75);
 }
 
 input {
-  padding: 0.85rem 1rem;
+  padding: 0.8rem 1rem;
   width: 100%;
-  max-width: none;
-  color: #333;
+  color: #1f2937;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.96);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.97);
   box-sizing: border-box;
+  font-size: 0.95rem;
+  font-family: inherit;
 }
 
 .input-error {
   border-color: #f87171;
-  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.16);
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.14);
 }
 
 .field-error {
-  margin: 0.4rem 0 0;
-  font-size: 0.9rem;
+  margin: 0.35rem 0 0;
+  font-size: 0.82rem;
   color: #ffb4b4;
+}
+
+/* ── Buttons ──────────────────────────────────────── */
+button {
+  font-family: inherit;
+}
+
+.btn {
+  min-height: 48px;
+  padding: 0.8rem 1.35rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+  border-radius: 14px;
+  border: none;
+  font-weight: 600;
+  font-family: inherit;
+  transition: background 0.18s, border-color 0.18s, box-shadow 0.18s, transform 0.12s;
+  white-space: nowrap;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn-geo {
+  background: rgba(96, 165, 250, 0.1);
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  color: #93c5fd;
+}
+
+.btn-geo:hover:not(:disabled) {
+  background: rgba(96, 165, 250, 0.2);
+  border-color: rgba(96, 165, 250, 0.55);
+}
+
+.btn-save {
+  background: linear-gradient(135deg, #45a7ff 0%, #0b57d0 100%);
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(11, 87, 208, 0.28);
+}
+
+.btn-save:hover:not(:disabled) {
+  background: linear-gradient(135deg, #2d95f5 0%, #0a4cb8 100%);
+  box-shadow: 0 6px 20px rgba(11, 87, 208, 0.4);
+}
+
+.btn-query {
+  background: rgba(167, 139, 250, 0.1);
+  border: 1px solid rgba(167, 139, 250, 0.28);
+  color: #c4b5fd;
+}
+
+.btn-query:hover:not(:disabled) {
+  background: rgba(167, 139, 250, 0.2);
+  border-color: rgba(167, 139, 250, 0.5);
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(159, 209, 255, 0.18);
+  color: #9fd1ff;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(159, 209, 255, 0.32);
 }
 
 .button-group {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 0.85rem;
   justify-content: center;
   margin-top: 1.25rem;
 }
 
-button,
-.geo-btn,
-.save-btn,
-.address-btn {
-  min-height: 50px;
-  padding: 0.85rem 1.4rem;
-  font-size: 1rem;
-  cursor: pointer;
-  border-radius: 16px;
-  border: none;
-  font-weight: 600;
-  background: linear-gradient(135deg, #45a7ff 0%, #0b57d0 100%);
-  color: #fff;
-  transition: background 0.2s, color 0.2s;
-}
-
-button:hover,
-.geo-btn:hover,
-.save-btn:hover,
-.address-btn:hover {
-  background: linear-gradient(135deg, #2d95f5 0%, #0a4cb8 100%);
-}
-
-button:disabled,
-.geo-btn:disabled,
-.save-btn:disabled,
-.address-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-
+/* ── Validation / Response cards ──────────────────── */
 .validation-card {
   margin-top: 1rem;
   padding: 0.9rem 1rem;
-  border-radius: 18px;
+  border-radius: 14px;
   text-align: left;
   color: #ffe0b2;
-  background: rgba(120, 53, 15, 0.34);
-  border: 1px solid rgba(251, 191, 36, 0.3);
+  background: rgba(120, 53, 15, 0.3);
+  border: 1px solid rgba(251, 191, 36, 0.25);
 }
 
 .validation-card ul,
 .response-list {
-  margin: 0.75rem 0 0;
+  margin: 0.7rem 0 0;
   padding-left: 1.2rem;
 }
 
 .response-card {
   margin-top: 1rem;
-  padding: 1rem 1.2rem;
+  padding: 1.1rem 1.25rem;
+  border-radius: 20px;
   text-align: left;
+  border: 1px solid rgba(159, 209, 255, 0.14);
+  background: rgba(10, 20, 36, 0.7);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.2);
 }
 
 .response-message {
   margin: 0.5rem 0 0;
   line-height: 1.5;
+  font-size: 0.93rem;
 }
 
 .response-card-error {
   color: #ffb4b4;
-  border-color: rgba(248, 113, 113, 0.34);
+  border-color: rgba(248, 113, 113, 0.3);
   background: rgba(86, 26, 26, 0.45);
 }
 
 .response-card-success {
   color: #8df0b4;
-  border-color: rgba(42, 181, 125, 0.28);
+  border-color: rgba(42, 181, 125, 0.25);
   background: rgba(22, 52, 36, 0.45);
 }
 
 .response-card-info {
   color: #a8d0ff;
-  border-color: rgba(96, 165, 250, 0.32);
+  border-color: rgba(96, 165, 250, 0.28);
   background: rgba(20, 44, 82, 0.42);
 }
 
@@ -1010,6 +1324,7 @@ button:disabled,
 
 .maps-link {
   color: #8dc7ff;
+  font-size: 0.9rem;
 }
 
 .maps-link-input {
@@ -1023,15 +1338,171 @@ button:disabled,
 .maps-feedback {
   margin: 0.75rem 0 0;
   color: #8df0b4;
+  font-size: 0.88rem;
 }
 
+/* ── Chain / Cadenas section ──────────────────────── */
+.cadena-toggle-row {
+  margin-top: 1.25rem;
+  display: flex;
+  justify-content: center;
+}
+
+.cadena-toggle-btn {
+  min-height: auto;
+  padding: 0.45rem 1.1rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+  border-radius: 100px;
+  border: 1px solid rgba(159, 209, 255, 0.2);
+  background: rgba(69, 167, 255, 0.07);
+  color: #9fd1ff;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+
+.cadena-toggle-btn:hover {
+  background: rgba(69, 167, 255, 0.14);
+}
+
+.cadena-section {
+  margin-top: 1rem;
+  padding: 1.1rem;
+  border-radius: 16px;
+  border: 1px dashed rgba(159, 209, 255, 0.18);
+  background: rgba(69, 167, 255, 0.04);
+  display: grid;
+  gap: 0.9rem;
+}
+
+.cadena-desc {
+  margin: 0;
+  color: rgba(243, 246, 251, 0.6);
+  font-size: 0.87rem;
+}
+
+.cadena-search-row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.cadena-input {
+  flex: 1 1 160px;
+  padding: 0.75rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.97);
+  color: #1f2937;
+  font-size: 0.93rem;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.cadena-search-btn {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.cadena-result {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.cadena-result-title {
+  margin: 0;
+  color: #f3f6fb;
+  font-size: 0.93rem;
+}
+
+.sedes-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.sede-chip {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(159, 209, 255, 0.18);
+  text-decoration: none;
+  color: #f3f6fb;
+  font-size: 0.86rem;
+  transition: background 0.15s;
+}
+
+.sede-chip:hover {
+  background: rgba(69, 167, 255, 0.14);
+}
+
+.sede-chip span {
+  color: rgba(243, 246, 251, 0.55);
+  font-size: 0.76rem;
+}
+
+.nueva-sede-form {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  border-radius: 12px;
+  border: 1px solid rgba(159, 209, 255, 0.12);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.nueva-sede-label {
+  margin: 0;
+  color: rgba(243, 246, 251, 0.75);
+  font-size: 0.88rem;
+}
+
+.nueva-sede-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.sede-feedback {
+  margin: 0;
+  font-size: 0.88rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: 10px;
+}
+
+.sede-feedback-ok {
+  color: #8df0b4;
+  background: rgba(22, 52, 36, 0.45);
+}
+
+.sede-feedback-err {
+  color: #ffb4b4;
+  background: rgba(86, 26, 26, 0.35);
+}
+
+/* ── Responsive ───────────────────────────────────── */
 @media (max-width: 600px) {
   .home-page {
-    padding: 1rem 0.75rem 2rem;
+    padding: 1.25rem 0.85rem 2rem;
   }
 
-  .home-stats {
+  .stat-bar {
+    gap: 1.2rem;
+    padding: 0.9rem 1.2rem;
+  }
+
+  .stat-hide-sm {
+    display: none;
+  }
+
+  .modules-grid {
     grid-template-columns: 1fr;
+  }
+
+  .module-card-wide {
+    grid-column: auto;
   }
 
   .form-grid {
@@ -1048,153 +1519,14 @@ button:disabled,
     gap: 0.7rem;
   }
 
-  button,
-  .geo-btn,
-  .save-btn,
-  .address-btn {
+  .btn {
     width: 100%;
   }
 
   .sync-button {
     min-width: 0;
   }
-}
 
-/* ── Cadenas y sedes ─────────────────────────── */
-.cadena-toggle-row {
-  margin-top: 1.2rem;
-  display: flex;
-  justify-content: center;
-}
-
-.cadena-toggle-btn {
-  min-height: auto;
-  padding: 0.5rem 1.1rem;
-  font-size: 0.88rem;
-  font-weight: 600;
-  border-radius: 12px;
-  border: 1px solid rgba(159, 209, 255, 0.28);
-  background: rgba(69, 167, 255, 0.1);
-  color: #9fd1ff;
-  cursor: pointer;
-}
-
-.cadena-section {
-  margin-top: 1rem;
-  padding: 1.1rem;
-  border-radius: 18px;
-  border: 1px dashed rgba(159, 209, 255, 0.25);
-  background: rgba(69, 167, 255, 0.05);
-  display: grid;
-  gap: 0.9rem;
-}
-
-.cadena-desc {
-  margin: 0;
-  color: rgba(243, 246, 251, 0.7);
-  font-size: 0.9rem;
-}
-
-.cadena-search-row {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.cadena-input {
-  flex: 1 1 160px;
-  padding: 0.75rem 0.9rem;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.96);
-  color: #1f2937;
-  font-size: 0.95rem;
-  box-sizing: border-box;
-}
-
-.cadena-search-btn {
-  min-height: 44px;
-  white-space: nowrap;
-}
-
-.cadena-result {
-  display: grid;
-  gap: 0.85rem;
-}
-
-.cadena-result-title {
-  margin: 0;
-  color: #f3f6fb;
-  font-size: 0.95rem;
-}
-
-.sedes-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-}
-
-.sede-chip {
-  display: grid;
-  gap: 0.2rem;
-  padding: 0.6rem 0.9rem;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(159, 209, 255, 0.2);
-  text-decoration: none;
-  color: #f3f6fb;
-  font-size: 0.88rem;
-  transition: background 0.15s;
-}
-
-.sede-chip:hover {
-  background: rgba(69, 167, 255, 0.16);
-}
-
-.sede-chip span {
-  color: rgba(243, 246, 251, 0.6);
-  font-size: 0.78rem;
-}
-
-.nueva-sede-form {
-  display: grid;
-  gap: 0.75rem;
-  padding: 0.9rem;
-  border-radius: 14px;
-  border: 1px solid rgba(159, 209, 255, 0.15);
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.nueva-sede-label {
-  margin: 0;
-  color: rgba(243, 246, 251, 0.8);
-  font-size: 0.9rem;
-}
-
-.nueva-sede-grid {
-  display: grid;
-  grid-template-columns: 2fr 1fr 1fr;
-  gap: 0.6rem;
-}
-
-.sede-feedback {
-  margin: 0;
-  font-size: 0.9rem;
-  padding: 0.6rem 0.8rem;
-  border-radius: 10px;
-}
-
-.sede-feedback-ok {
-  color: #8df0b4;
-  background: rgba(22, 52, 36, 0.5);
-}
-
-.sede-feedback-err {
-  color: #ffb4b4;
-  background: rgba(86, 26, 26, 0.4);
-}
-
-@media (max-width: 600px) {
   .nueva-sede-grid {
     grid-template-columns: 1fr;
   }
