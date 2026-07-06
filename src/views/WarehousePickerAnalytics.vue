@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
@@ -16,16 +16,29 @@ const feedbackMessage = ref("Ingresa la clave administrativa para habilitar el r
 const overview = ref(createEmptyOverview());
 const ranking = ref([]);
 const reports = ref([]);
+const orderLookup = ref("");
+const orderLookupLoading = ref(false);
+const orderLookupError = ref("");
+const orderLookupFeedback = ref("");
+const selectedOrderReport = ref(null);
+const errorReportSubmitting = ref(false);
+const errorReportForm = reactive({
+  tipoError: "",
+  descripcion: "",
+});
 
 const isUnlocked = computed(() => adminKeyInput.value.trim() === ADMIN_VIEW_KEY);
 const topWorker = computed(() => overview.value.responsableConMasPicking || null);
+const topErrorWorker = computed(() => overview.value.responsableConMasErrores || null);
 
 function createEmptyOverview() {
   return {
     totalPedidos: 0,
     totalCajas: 0,
+    totalErrores: 0,
     responsablesActivos: 0,
     responsableConMasPicking: null,
+    responsableConMasErrores: null,
   };
 }
 
@@ -61,6 +74,14 @@ function resetData() {
   overview.value = createEmptyOverview();
   ranking.value = [];
   reports.value = [];
+}
+
+function resetOrderLookup() {
+  selectedOrderReport.value = null;
+  orderLookupError.value = "";
+  orderLookupFeedback.value = "";
+  errorReportForm.tipoError = "";
+  errorReportForm.descripcion = "";
 }
 
 function buildSummaryQuery() {
@@ -127,13 +148,111 @@ watch(isUnlocked, (unlocked) => {
     loadWarehouseAnalytics();
   } else {
     resetData();
+    resetOrderLookup();
     feedbackMessage.value = "Ingresa la clave administrativa para habilitar el resumen.";
     errorMessage.value = "";
   }
 });
 
+async function searchPickingByOrder() {
+  const numeroPedido = orderLookup.value.trim().toUpperCase();
+
+  if (!isUnlocked.value) {
+    orderLookupError.value = "Debes ingresar la clave administrativa correcta para buscar pedidos.";
+    orderLookupFeedback.value = "";
+    return;
+  }
+
+  if (!numeroPedido) {
+    orderLookupError.value = "Ingresa el ID del pedido para buscar quien hizo el picking.";
+    orderLookupFeedback.value = "";
+    return;
+  }
+
+  orderLookupLoading.value = true;
+  orderLookupError.value = "";
+  orderLookupFeedback.value = "";
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/internal/admin/picking-reports/order/${encodeURIComponent(numeroPedido)}`, {
+      headers: {
+        "x-admin-delete-key": adminKeyInput.value.trim(),
+      },
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      selectedOrderReport.value = null;
+      orderLookupError.value = result?.message || "No se pudo buscar el pedido.";
+      return;
+    }
+
+    selectedOrderReport.value = result?.report || null;
+    orderLookupFeedback.value = selectedOrderReport.value
+      ? `Pedido ${selectedOrderReport.value.numeroPedido} encontrado.`
+      : "No se encontro informacion del pedido.";
+  } catch (error) {
+    selectedOrderReport.value = null;
+    orderLookupError.value = `Error buscando pedido: ${error.message}`;
+  } finally {
+    orderLookupLoading.value = false;
+  }
+}
+
+async function submitPickingErrorReport() {
+  if (!selectedOrderReport.value?.numeroPedido) {
+    orderLookupError.value = "Primero busca un pedido valido.";
+    orderLookupFeedback.value = "";
+    return;
+  }
+
+  if (!errorReportForm.tipoError.trim() || !errorReportForm.descripcion.trim()) {
+    orderLookupError.value = "Debes indicar el tipo de error y una descripcion.";
+    orderLookupFeedback.value = "";
+    return;
+  }
+
+  errorReportSubmitting.value = true;
+  orderLookupError.value = "";
+  orderLookupFeedback.value = "";
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/internal/admin/picking-reports/order/${encodeURIComponent(selectedOrderReport.value.numeroPedido)}/errors`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-delete-key": adminKeyInput.value.trim(),
+      },
+      body: JSON.stringify({
+        tipoError: errorReportForm.tipoError.trim(),
+        descripcion: errorReportForm.descripcion.trim(),
+      }),
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      orderLookupError.value = result?.message || "No se pudo guardar el reporte de error.";
+      return;
+    }
+
+    selectedOrderReport.value = {
+      ...selectedOrderReport.value,
+      totalErrores: Number(selectedOrderReport.value.totalErrores || 0) + 1,
+    };
+    orderLookupFeedback.value = `Error reportado para el pedido ${selectedOrderReport.value.numeroPedido}.`;
+    errorReportForm.tipoError = "";
+    errorReportForm.descripcion = "";
+    await loadWarehouseAnalytics();
+  } catch (error) {
+    orderLookupError.value = `Error guardando reporte: ${error.message}`;
+  } finally {
+    errorReportSubmitting.value = false;
+  }
+}
+
 onMounted(() => {
   resetData();
+  resetOrderLookup();
 });
 </script>
 
@@ -196,6 +315,82 @@ onMounted(() => {
         </div>
       </div>
 
+      <section class="panel table-panel order-lookup-panel">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Control de errores</p>
+            <h2>Buscar picking por pedido</h2>
+          </div>
+          <span class="panel-badge">Trazabilidad</span>
+        </div>
+
+        <div class="lookup-row">
+          <label class="month-field lookup-field">
+            <span>ID del pedido</span>
+            <input v-model="orderLookup" type="text" placeholder="Ej: PED-001234" @keyup.enter="searchPickingByOrder" />
+          </label>
+          <button class="primary-button lookup-button" type="button" :disabled="orderLookupLoading" @click="searchPickingByOrder">
+            {{ orderLookupLoading ? "Buscando..." : "Buscar pedido" }}
+          </button>
+        </div>
+
+        <p v-if="orderLookupError" class="feedback error-text">
+          {{ orderLookupError }}
+        </p>
+
+        <p v-else-if="orderLookupFeedback" class="feedback success-text">
+          {{ orderLookupFeedback }}
+        </p>
+
+        <div v-if="selectedOrderReport" class="lookup-result-card">
+          <div class="lookup-result-grid">
+            <div>
+              <span>Pedido</span>
+              <strong>{{ selectedOrderReport.numeroPedido }}</strong>
+            </div>
+            <div>
+              <span>Responsable del picking</span>
+              <strong>{{ selectedOrderReport.responsableId }}</strong>
+            </div>
+            <div>
+              <span>Cajas</span>
+              <strong>{{ formatInteger(selectedOrderReport.numeroCajas) }}</strong>
+            </div>
+            <div>
+              <span>Errores reportados</span>
+              <strong>{{ formatInteger(selectedOrderReport.totalErrores) }}</strong>
+            </div>
+          </div>
+
+          <form class="lookup-report-form" @submit.prevent="submitPickingErrorReport">
+            <div class="lookup-report-grid">
+              <label class="month-field">
+                <span>Tipo de error</span>
+                <select v-model="errorReportForm.tipoError">
+                  <option value="">Selecciona una opcion</option>
+                  <option value="producto incorrecto">Producto incorrecto</option>
+                  <option value="faltante">Faltante</option>
+                  <option value="sobrante">Sobrante</option>
+                  <option value="cantidad incorrecta">Cantidad incorrecta</option>
+                  <option value="otro">Otro</option>
+                </select>
+              </label>
+
+              <label class="month-field lookup-report-description">
+                <span>Descripcion del error</span>
+                <textarea v-model="errorReportForm.descripcion" rows="4" placeholder="Explica que error se encontro en el picking"></textarea>
+              </label>
+            </div>
+
+            <div class="lookup-actions">
+              <button class="primary-button" type="submit" :disabled="errorReportSubmitting">
+                {{ errorReportSubmitting ? "Guardando..." : "Reportar error" }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+
       <div class="summary-grid">
         <article class="summary-card accent-orange">
           <span class="summary-label">Pedidos picados</span>
@@ -213,9 +408,9 @@ onMounted(() => {
           <small>Responsables con picking en el periodo</small>
         </article>
         <article class="summary-card accent-rose">
-          <span class="summary-label">Top picking</span>
-          <strong>{{ topWorker?.responsableId || "Sin datos" }}</strong>
-          <small>{{ topWorker ? `${formatInteger(topWorker.totalPedidos)} pedidos` : "Sin registros" }}</small>
+          <span class="summary-label">Errores reportados</span>
+          <strong>{{ formatInteger(overview.totalErrores) }}</strong>
+          <small>{{ topErrorWorker ? `${topErrorWorker.responsableId} lidera con ${formatInteger(topErrorWorker.totalErrores)} errores` : "Sin errores reportados" }}</small>
         </article>
       </div>
 
@@ -266,6 +461,11 @@ onMounted(() => {
                 <strong>{{ overview.totalCajas ? Math.round((topWorker.totalCajas / overview.totalCajas) * 100) : 0 }}%</strong>
                 <small>Volumen movido por el top</small>
               </article>
+              <article class="kpi-card">
+                <span>Mas errores reportados</span>
+                <strong>{{ topErrorWorker?.responsableId || "Sin datos" }}</strong>
+                <small>{{ topErrorWorker ? `${formatInteger(topErrorWorker.totalErrores)} errores asociados` : "Sin errores en el periodo" }}</small>
+              </article>
             </div>
           </div>
 
@@ -294,6 +494,7 @@ onMounted(() => {
                 <div class="driver-status-group">
                   <span class="status-chip">{{ formatInteger(worker.totalPedidos) }} pedidos</span>
                   <span class="status-chip status-chip-alt">{{ formatInteger(worker.totalCajas) }} cajas</span>
+                  <span class="status-chip status-chip-error">{{ formatInteger(worker.totalErrores) }} errores</span>
                 </div>
               </div>
 
@@ -305,6 +506,10 @@ onMounted(() => {
                 <div>
                   <span>Cajas</span>
                   <strong>{{ formatInteger(worker.totalCajas) }}</strong>
+                </div>
+                <div>
+                  <span>Errores</span>
+                  <strong>{{ formatInteger(worker.totalErrores) }}</strong>
                 </div>
               </div>
             </article>
@@ -452,13 +657,21 @@ onMounted(() => {
 
 input[type="month"],
 input[type="date"],
-input[type="password"] {
+input[type="password"],
+input[type="text"],
+select,
+textarea {
   min-height: 44px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 14px;
   background: rgba(15, 23, 42, 0.55);
   color: #fff7ed;
   padding: 0.8rem 0.9rem;
+}
+
+textarea {
+  min-height: 110px;
+  resize: vertical;
 }
 
 .primary-button,
@@ -618,6 +831,10 @@ input[type="password"] {
   background: rgba(56, 189, 248, 0.16);
 }
 
+.status-chip-error {
+  background: rgba(244, 114, 182, 0.18);
+}
+
 .driver-metrics-grid {
   margin-top: 1rem;
   display: grid;
@@ -626,7 +843,65 @@ input[type="password"] {
 }
 
 .picker-metrics-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.order-lookup-panel {
+  margin-bottom: 1rem;
+}
+
+.lookup-row,
+.lookup-actions {
+  display: flex;
+  gap: 0.9rem;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.lookup-field {
+  flex: 1 1 320px;
+}
+
+.lookup-button {
+  min-width: 180px;
+}
+
+.lookup-result-card {
+  margin-top: 1rem;
+  border-radius: 20px;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.lookup-result-grid,
+.lookup-report-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.lookup-result-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.lookup-result-grid span {
+  color: rgba(255, 247, 237, 0.7);
+}
+
+.lookup-result-grid strong {
+  display: block;
+  margin-top: 0.35rem;
+}
+
+.lookup-report-form {
+  margin-top: 1rem;
+}
+
+.lookup-report-grid {
+  grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.3fr);
+}
+
+.lookup-report-description {
+  min-width: 0;
 }
 
 .empty-panel {
@@ -678,6 +953,12 @@ input[type="password"] {
 
   .picker-actions {
     min-width: 0;
+  }
+
+  .lookup-result-grid,
+  .lookup-report-grid,
+  .picker-metrics-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

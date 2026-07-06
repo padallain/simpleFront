@@ -136,6 +136,25 @@ function normalizePayload(form) {
   };
 }
 
+function upsertMaintenanceRecord(record) {
+  const recordId = String(record?._id || "");
+
+  if (!recordId) {
+    return;
+  }
+
+  const existingIndex = maintenanceRecords.value.findIndex((item) => item._id === recordId);
+
+  if (existingIndex >= 0) {
+    maintenanceRecords.value = maintenanceRecords.value.map((item) => (
+      item._id === recordId ? record : item
+    ));
+    return;
+  }
+
+  maintenanceRecords.value = [record, ...maintenanceRecords.value];
+}
+
 function startEdit(record) {
   editingRecordId.value = String(record?._id || "");
   Object.assign(maintenanceForm, {
@@ -206,6 +225,46 @@ async function loadUpcomingMaintenance() {
     upcomingMaintenance.value = Array.isArray(result?.mantenimientos) ? result.mantenimientos : [];
   } catch (_error) {
     upcomingMaintenance.value = [];
+  }
+}
+
+async function completeUpcomingMaintenance(record) {
+  const recordId = String(record?._id || "");
+  const normalizedAdminKey = adminKey.value.trim();
+
+  if (!recordId) {
+    errorMessage.value = "El mantenimiento no tiene un identificador valido.";
+    feedbackMessage.value = "";
+    return;
+  }
+
+  if (!normalizedAdminKey) {
+    errorMessage.value = "Ingresa la clave interna para marcar el mantenimiento como completado.";
+    feedbackMessage.value = "";
+    return;
+  }
+
+  savingRecordId.value = recordId;
+  errorMessage.value = "";
+  feedbackMessage.value = "";
+
+  try {
+    const payload = normalizePayload({
+      ...record,
+      estado: "completado",
+      fechaServicio: new Date().toISOString().slice(0, 10),
+      fechaProximoServicio: record?.fechaProximoServicio ? String(record.fechaProximoServicio).slice(0, 10) : "",
+      items: Array.isArray(record?.items) ? record.items : [],
+    });
+    const result = await updateVehicleMaintenanceById(recordId, payload, normalizedAdminKey);
+
+    upcomingMaintenance.value = upcomingMaintenance.value.filter((item) => item._id !== recordId);
+    upsertMaintenanceRecord(result.maintenance);
+    feedbackMessage.value = `Mantenimiento de ${result.maintenance?.placa || record.placa} marcado como completado.`;
+  } catch (error) {
+    errorMessage.value = error.message;
+  } finally {
+    savingRecordId.value = "";
   }
 }
 
@@ -399,6 +458,12 @@ onMounted(() => {
               <span><strong>Estado:</strong> {{ formatUpcomingStatus(record) }}</span>
               <span><strong>Km actual:</strong> {{ record.kilometraje || 0 }}</span>
               <span><strong>Taller:</strong> {{ record.taller || 'No indicado' }}</span>
+            </div>
+
+            <div class="upcoming-actions">
+              <button class="primary-button" type="button" :disabled="savingRecordId === record._id" @click="completeUpcomingMaintenance(record)">
+                {{ savingRecordId === record._id ? 'Guardando...' : 'Marcar como completado' }}
+              </button>
             </div>
           </article>
         </div>
@@ -706,7 +771,10 @@ onMounted(() => {
 }
 
 .upcoming-card {
+  display: flex;
+  flex-direction: column;
   padding: 1rem;
+  min-height: 100%;
   border-radius: 20px;
   border: 1px solid rgba(255, 176, 103, 0.18);
   background: rgba(255, 255, 255, 0.04);
@@ -722,6 +790,17 @@ onMounted(() => {
   gap: 0.45rem;
   margin-top: 0.8rem;
   color: rgba(238, 244, 251, 0.78);
+}
+
+.upcoming-actions {
+  display: flex;
+  justify-content: stretch;
+  margin-top: auto;
+  padding-top: 1rem;
+}
+
+.upcoming-actions .primary-button {
+  width: 100%;
 }
 
 .summary-card {
