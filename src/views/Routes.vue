@@ -111,22 +111,47 @@ const activeRouteOption = computed(() => {
   return routeOptions.value.find((option) => option.type === selectedRouteType.value) || routeOptions.value[0];
 });
 
-const activeRouteMapStops = computed(() =>
-  Array.isArray(activeRouteOption.value?.route) ? activeRouteOption.value.route : [],
-);
+const editableRoute = ref([]);
+const draggedIndex = ref(null);
 
-const clientLinkEntries = computed(() => {
-  const routeStops = Array.isArray(activeRouteOption.value?.route) ? activeRouteOption.value.route : [];
+const activeRouteMapStops = computed(() => editableRoute.value);
 
-  return routeStops
+const clientLinkEntries = computed(() =>
+  editableRoute.value
     .filter((stop) => stop?.nombre && stop?.googleMapsLink)
     .map((stop) => ({
       id: stop.id,
       nombre: stop.nombre,
       link: stop.googleMapsLink,
       text: `${stop.nombre}, ${stop.googleMapsLink}`,
-    }));
-});
+    })),
+);
+
+function onDragStart(e, idx) {
+  draggedIndex.value = idx;
+  e.dataTransfer.effectAllowed = "move";
+}
+
+function onDrop(e, targetIdx) {
+  e.preventDefault();
+  const from = draggedIndex.value;
+  draggedIndex.value = null;
+  if (from === null || from === targetIdx) return;
+
+  const route = [...editableRoute.value];
+  const [moved] = route.splice(from, 1);
+  route.splice(targetIdx, 0, moved);
+  editableRoute.value = route;
+
+  const table = [...routeTable.value];
+  const [movedRow] = table.splice(from, 1);
+  table.splice(targetIdx, 0, movedRow);
+  routeTable.value = table.map((row, i) => ({ ...row, orden: i + 1 }));
+}
+
+function onDragEnd() {
+  draggedIndex.value = null;
+}
 
 const shareMessage = computed(() => {
   const lines = clientLinkEntries.value.map((entry) => entry.text);
@@ -147,6 +172,7 @@ watch(
   () => activeRouteOption.value?.route,
   (route) => {
     if (Array.isArray(route) && route.length) {
+      editableRoute.value = [...route];
       routeTable.value = route.map((stop, idx) => ({
         orden: idx + 1,
         nombre: stop.nombre,
@@ -154,7 +180,7 @@ watch(
       }));
       return;
     }
-
+    editableRoute.value = [];
     routeTable.value = [];
   },
   { immediate: true },
@@ -548,8 +574,20 @@ async function makeRoute() {
 
           <div class="share-fields">
             <div v-if="clientLinkEntries.length" class="share-list">
-              <article v-for="entry in clientLinkEntries" :key="entry.id || entry.link" class="share-list-item">
-                <div>
+              <p class="reorder-hint">Arrastra para cambiar el orden antes de copiar.</p>
+              <article
+                v-for="(entry, idx) in clientLinkEntries"
+                :key="entry.id || entry.link"
+                class="share-list-item"
+                :class="{ 'share-item-dragging': draggedIndex === idx }"
+                draggable="true"
+                @dragstart="onDragStart($event, idx)"
+                @dragover.prevent
+                @drop="onDrop($event, idx)"
+                @dragend="onDragEnd"
+              >
+                <span class="drag-handle" title="Arrastra para reordenar">⠿</span>
+                <div class="entry-info">
                   <strong>{{ entry.nombre }}</strong>
                   <p>{{ entry.link }}</p>
                 </div>
@@ -582,7 +620,7 @@ async function makeRoute() {
           <strong>Resumen de la ruta:</strong>
           <div class="table-wrapper">
             <el-table
-              :data="activeRouteOption?.route || []"
+              :data="editableRoute"
               class="responsive-table result-table"
             >
         <el-table-column prop="id" label="ID" width="150" />
@@ -1133,5 +1171,39 @@ async function makeRoute() {
 
 :deep(.anchor-row td) {
   background: rgba(248, 202, 91, 0.07) !important;
+}
+
+/* ── Drag-and-drop reorder ────────────────────────── */
+.reorder-hint {
+  margin: 0 0 0.6rem;
+  font-size: 0.8rem;
+  color: rgba(243, 246, 251, 0.38);
+}
+
+.share-list-item {
+  cursor: grab;
+}
+
+.share-list-item:active {
+  cursor: grabbing;
+}
+
+.share-item-dragging {
+  opacity: 0.35;
+  border-style: dashed !important;
+}
+
+.drag-handle {
+  font-size: 1.25rem;
+  color: rgba(159, 209, 255, 0.35);
+  flex-shrink: 0;
+  cursor: grab;
+  line-height: 1;
+  user-select: none;
+}
+
+.entry-info {
+  flex: 1;
+  min-width: 0;
 }
 </style>
