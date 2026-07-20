@@ -41,7 +41,7 @@
           <p>Completa los datos iniciales para generar tu acceso a MakeRoute.</p>
         </div>
 
-        <form class="auth-form" @submit.prevent>
+        <form class="auth-form" @submit.prevent="submitSignup">
           <div class="auth-field-group">
             <div class="auth-field">
               <label for="signup-email">Correo electronico</label>
@@ -59,11 +59,11 @@
             <input id="signup-password" v-model="password" type="password" placeholder="Crea una contrasena segura" autocomplete="new-password" />
           </div>
 
-          <div class="auth-note">
-            Este flujo deja listo el frente para registro. La integracion con el backend puede conectarse despues sin rehacer el diseno.
-          </div>
+          <p v-if="statusMessage" class="auth-status" :class="statusClass">{{ statusMessage }}</p>
 
-          <button class="auth-submit" type="submit">Crear cuenta</button>
+          <button class="auth-submit" type="submit" :disabled="isSubmitting">
+            {{ isSubmitting ? "Creando cuenta..." : "Crear cuenta" }}
+          </button>
         </form>
 
         <p class="auth-switch">
@@ -76,14 +76,50 @@
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import easyMoveLogo from "../assets/easyMove.png";
+import { registerUser } from "../services/auth";
 
 const router = useRouter();
 const email = ref("");
 const username = ref("");
 const password = ref("");
+const isSubmitting = ref(false);
+const errorMessage = ref("");
+const infoMessage = ref("");
+
+const statusMessage = computed(() => errorMessage.value || infoMessage.value);
+const statusClass = computed(() => (errorMessage.value ? "auth-status-error" : "auth-status-info"));
+
+async function submitSignup() {
+  errorMessage.value = "";
+  infoMessage.value = "";
+
+  if (!email.value.trim() || !username.value.trim() || !password.value) {
+    errorMessage.value = "Debes completar correo, usuario y contrasena.";
+    return;
+  }
+
+  isSubmitting.value = true;
+
+  try {
+    await registerUser({
+      email: email.value.trim(),
+      username: username.value.trim(),
+      password: password.value,
+    });
+
+    await router.push({
+      path: "/login",
+      query: { reason: "signup-success" },
+    });
+  } catch (error) {
+    errorMessage.value = error.message || "No se pudo crear la cuenta.";
+  } finally {
+    isSubmitting.value = false;
+  }
+}
 
 function goToLogin() {
   router.push("/login");

@@ -186,21 +186,27 @@ export async function fetchSession({ force = false } = {}) {
   }
 
   sessionRequest = (async () => {
-    const response = await fetch(`${API_BASE_URL}/session`, withApiDefaults({
-      headers: {
-        "x-skip-auth-redirect": "true",
-      },
-    }));
+    try {
+      const response = await fetch(`${API_BASE_URL}/session`, withApiDefaults({
+        headers: {
+          "x-skip-auth-redirect": "true",
+        },
+      }));
 
-    const result = await parseJson(response);
+      const result = await parseJson(response);
 
-    if (!response.ok || !result?.authenticated) {
+      if (!response.ok || !result?.authenticated) {
+        clearAuthState();
+        return getAuthState();
+      }
+
+      setAuthenticatedUser(result.user || null);
+      return getAuthState();
+    } catch (error) {
+      console.warn("[auth] session check failed", error);
       clearAuthState();
       return getAuthState();
     }
-
-    setAuthenticatedUser(result.user || null);
-    return getAuthState();
   })();
 
   try {
@@ -228,6 +234,25 @@ export async function loginWithSession({ email, password }) {
 
   setAuthenticatedUser(result?.user || null);
   storeRedirectReason("");
+  return result;
+}
+
+export async function registerUser({ email, username, password }) {
+  const response = await fetch(`${API_BASE_URL}/register`, withApiDefaults({
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-skip-auth-redirect": "true",
+    },
+    body: JSON.stringify({ email, username, password }),
+  }));
+
+  const result = await parseJson(response);
+
+  if (!response.ok) {
+    throw new Error(result?.message || "No se pudo crear la cuenta");
+  }
+
   return result;
 }
 

@@ -128,6 +128,11 @@ onMounted(() => {
     return;
   }
 
+  if (reason === "signup-success") {
+    infoMessage.value = "Cuenta creada. Inicia sesion con tus credenciales.";
+    return;
+  }
+
   if (reason === "session-expired") {
     infoMessage.value = "Tu sesion expiro despues de 24 horas. Debes autenticarte otra vez.";
     return;
