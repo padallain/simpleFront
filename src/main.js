@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import './style.css'
 import App from './App.vue'
 import router from './router/index'
+import { installApiAuthInterceptor } from './services/auth'
 
 import 'element-plus/dist/index.css'
 import ElementPlus from 'element-plus'
@@ -15,6 +16,8 @@ console.log('[main] bootstrapping app', {
 	hash: window.location.hash,
 	href: window.location.href,
 })
+
+installApiAuthInterceptor()
 
 const vuetify = createVuetify()
 createApp(App).use(router).use(vuetify).use(ElementPlus).mount('#app')
