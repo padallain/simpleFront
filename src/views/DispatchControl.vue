@@ -1,56 +1,33 @@
 <script setup>
-import { computed, reactive, ref } from "vue";
+import { computed, nextTick, onMounted, reactive, ref } from "vue";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 
-const MAIN_ZONES = [
-  { id: "SUR", nombre: "SUR", combina: "CENTRO u OESTE", solo: false },
-  { id: "CENTRO", nombre: "CENTRO", combina: "NORTE o SUR", solo: false },
-  { id: "OESTE", nombre: "OESTE", combina: "NORTE o SUR", solo: false },
-  { id: "NORTE", nombre: "NORTE", combina: "CENTRO u OESTE", solo: false },
-  { id: "OJEDA", nombre: "OJEDA", combina: "Puede salir sola o con MENEGRANDE y BACHAQUERO", solo: false },
-  { id: "MENEGRANDE", nombre: "MENEGRANDE", combina: "Siempre con OJEDA si OJEDA esta activa. No apta para camioneta", solo: false },
-  { id: "CABIMAS", nombre: "CABIMAS", combina: "Sale sola", solo: false },
-  { id: "BACHAQUERO", nombre: "BACHAQUERO", combina: "Siempre con OJEDA si OJEDA esta activa", solo: false },
-];
+const mainZones = ref([]);
+const soloZones = ref([]);
+const customZones = ref([]);
+const territoryConfig = ref(null);
+const territoryLoaded = ref(false);
+const customZoneNameRefs = ref({});
 
-const SOLO_ZONES = [
-  { id: "MACHIQUES", nombre: "MACHIQUES", combina: "", solo: true },
-  { id: "PUERTOS", nombre: "PUERTOS", combina: "", solo: true },
-  { id: "CONCEPCION", nombre: "CONCEPCIÓN", combina: "", solo: true },
-  { id: "MARA", nombre: "MARA", combina: "", solo: true },
-];
-
-const ALL_ZONES = [...MAIN_ZONES, ...SOLO_ZONES];
-const DEFAULT_VANS = [
-  { id: 1, nombre: "Camioneta 1", disponible: true },
-  { id: 2, nombre: "Camioneta 2", disponible: true },
-  { id: 3, nombre: "Camioneta 3", disponible: true },
-];
-const DEFAULT_TRUCKS = [
-  { id: 1, nombre: "Camión 1", disponible: true },
-  { id: 2, nombre: "Camión 2", disponible: true },
-  { id: 3, nombre: "Camión 3", disponible: true },
-];
-
-const zoneState = reactive(Object.fromEntries(
-  ALL_ZONES.map((zone) => [zone.id, {
-    enabled: true,
-    peso: "",
-    valor: "",
-    clientes: "",
-  }]),
-));
+const zoneState = reactive({});
+const ruleState = reactive({});
 
 const costoExterno = ref("0");
+const porcentajeUtilidad = ref("100");
 const vehicleState = reactive({
-  camionetas: DEFAULT_VANS.map((vehiculo) => ({ ...vehiculo })),
-  camiones: DEFAULT_TRUCKS.map((vehiculo) => ({ ...vehiculo })),
+  unidades: [],
 });
 const loading = ref(false);
 const errorMessage = ref("");
 const feedbackMessage = ref("");
 const serverResponse = ref(null);
+
+const allZones = computed(() => [...mainZones.value, ...soloZones.value, ...customZones.value]);
+const hasPresetMainZones = computed(() => mainZones.value.length > 0);
+const hasPresetSoloZones = computed(() => soloZones.value.length > 0);
+const hasAnyZoneRows = computed(() => allZones.value.length > 0);
+const canWorkManually = computed(() => territoryLoaded.value || customZones.value.length > 0);
 
 const todayLabel = new Date().toLocaleDateString("es-VE", {
   weekday: "long",
@@ -58,6 +35,67 @@ const todayLabel = new Date().toLocaleDateString("es-VE", {
   month: "long",
   day: "numeric",
 });
+
+const dispatchAssignments = computed(() => {
+  const response = serverResponse.value;
+
+  if (!response) {
+    return [];
+  }
+
+  if (Array.isArray(response.plan) || Array.isArray(response.zonas_externo) || Array.isArray(response.zonas_mañana)) {
+    const plan = Array.isArray(response.plan) ? response.plan : [];
+    const externos = Array.isArray(response.zonas_externo) ? response.zonas_externo : [];
+    const manana = Array.isArray(response.zonas_mañana) ? response.zonas_mañana : [];
+
+    return [
+      ...plan.map((item) => ({
+        vehiculo: item.nombre_vehiculo || item.vehiculo,
+        tipo: item.tipo,
+        zonas: item.zonas || [],
+        peso: item.kg_total,
+        valor: item.valor_total_dolares,
+        valorFacturado: item.valor_facturado_total_dolares,
+        clientes: item.clientes_total,
+        cajas: item.cajas_total,
+        porcentajeOcupacion: item.porcentaje_ocupacion,
+        capacidadKg: item.capacidad_kg,
+        motivo: item.motivo,
+      })),
+      ...externos.map((item) => ({
+        vehiculo: "Vehículo externo",
+        tipo: "externo",
+        zonas: item.zonas || [],
+        peso: item.kg_total,
+        valor: item.valor_dolares,
+        valorFacturado: item.valor_facturado_dolares,
+        clientes: item.clientes_total,
+        cajas: item.cajas_total,
+        costoExterno: item.costo_externo,
+        gananciaNeta: item.ganancia_neta_si_externo,
+        indicadorFlete: item.indicador_flete_porcentaje,
+        motivo: item.razon,
+      })),
+      ...manana.map((item) => ({
+        vehiculo: null,
+        tipo: "posponer",
+        zonas: item.zonas || [],
+        peso: item.kg_total,
+        valor: item.valor_dolares,
+        valorFacturado: item.valor_facturado_dolares,
+        clientes: item.clientes_total,
+        cajas: item.cajas_total,
+        costoExterno: (response.costo_externo_referencia ?? response.costoExterno ?? Number(costoExterno.value)) || 0,
+        gananciaNeta: item.valor_dolares,
+        motivo: item.razon,
+      })),
+    ];
+  }
+
+  return Array.isArray(response.asignaciones) ? response.asignaciones : [];
+});
+
+const optimizerStrategy = computed(() => serverResponse.value?.estrategia || null);
 
 const summaryCards = computed(() => {
   const resumen = serverResponse.value?.resumen;
@@ -67,28 +105,43 @@ const summaryCards = computed(() => {
   }
 
   const cards = [
-    { label: "Camionetas", value: `${resumen.camionetasUsadas}/${resumen.camionetasHabilitadas}`, tone: "blue" },
-    { label: "Camiones", value: `${resumen.camionesUsados}/${resumen.camionesHabilitados}`, tone: "green" },
-    { label: "Camionetas fuera", value: String(resumen.camionetasConfiguradas - resumen.camionetasHabilitadas), tone: "slate" },
-    { label: "Camiones fuera", value: String(resumen.camionesConfigurados - resumen.camionesHabilitados), tone: "slate" },
-    { label: "Externos", value: String(resumen.externosRequeridos), tone: "gold" },
-    { label: "Pospuestas", value: String(resumen.rutasPospuestas), tone: "red" },
-    { label: "Clientes despachados", value: String(resumen.totalClientesDespachados || 0), tone: "slate" },
-    { label: "Valor despachado", value: formatCurrency(resumen.totalValorDespachado), tone: "green-wide" },
+    {
+      label: "Vehículos propios",
+      value: `${resumen.vehiculosUsados ?? resumen.vehiculos_propios_usados ?? resumen.vehiculos_usados ?? 0}/${resumen.vehiculosHabilitados ?? resumen.vehiculos_propios_habilitados ?? resumen.vehiculos_habilitados ?? 0}`,
+      tone: "blue",
+    },
+    {
+      label: "Vehículos fuera",
+      value: String((resumen.vehiculosConfigurados ?? resumen.vehiculos_propios_configurados ?? resumen.vehiculos_configurados ?? 0) - (resumen.vehiculosHabilitados ?? resumen.vehiculos_propios_habilitados ?? resumen.vehiculos_habilitados ?? 0)),
+      tone: "green",
+    },
+    { label: "Externos", value: String(resumen.externosRequeridos ?? serverResponse.value?.zonas_externo?.length ?? 0), tone: "gold" },
+    { label: "Pospuestas", value: String(resumen.rutasPospuestas ?? serverResponse.value?.zonas_mañana?.length ?? 0), tone: "red" },
+    { label: "Clientes despachados", value: String(resumen.totalClientesDespachados ?? resumen.clientes_despachados ?? 0), tone: "slate" },
+    { label: "Facturado despachado", value: formatCurrency(resumen.totalFacturadoDespachado ?? resumen.facturado_despachado_hoy ?? 0), tone: "slate" },
+    { label: "Ganancia estimada", value: formatCurrency(resumen.totalValorDespachado ?? resumen.valor_despachado_hoy), tone: "green-wide" },
   ];
 
-  if (Number(resumen.totalValorPospuesto) > 0) {
+  if (Number(resumen.totalValorPospuesto ?? resumen.valor_pendiente) > 0) {
     cards.push({
-      label: "Valor pospuesto",
-      value: formatCurrency(resumen.totalValorPospuesto),
+      label: "Ganancia pospuesta",
+      value: formatCurrency(resumen.totalValorPospuesto ?? resumen.valor_pendiente),
       tone: "red-wide",
     });
   }
 
-  if (Number(resumen.totalClientesPospuestos) > 0) {
+  if (Number(resumen.totalFacturadoPospuesto ?? resumen.facturado_pendiente) > 0) {
+    cards.push({
+      label: "Facturado pospuesto",
+      value: formatCurrency(resumen.totalFacturadoPospuesto ?? resumen.facturado_pendiente),
+      tone: "red",
+    });
+  }
+
+  if (Number(resumen.totalClientesPospuestos ?? resumen.clientes_pendientes) > 0) {
     cards.push({
       label: "Clientes pospuestos",
-      value: String(resumen.totalClientesPospuestos || 0),
+      value: String(resumen.totalClientesPospuestos ?? resumen.clientes_pendientes ?? 0),
       tone: "red",
     });
   }
@@ -96,12 +149,131 @@ const summaryCards = computed(() => {
   return cards;
 });
 
-const activeZonesSummary = computed(() => serverResponse.value?.zonasActivas?.join(", ") || "Sin datos");
+const activeZonesSummary = computed(() => {
+  const response = serverResponse.value;
+
+  if (!response) {
+    return "Sin datos";
+  }
+
+  if (Array.isArray(response.zonasActivas) && response.zonasActivas.length) {
+    return response.zonasActivas.join(", ");
+  }
+
+  if (Array.isArray(response.zonas_input) && response.zonas_input.length) {
+    return response.zonas_input.map((zone) => zone.nombre).join(", ");
+  }
+
+  return "Sin datos";
+});
 
 function zoneRowClass(zoneId) {
   return {
     inactive: !zoneState[zoneId].enabled,
   };
+}
+
+function normalizeZoneName(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function createCustomZone() {
+  const nextIndex = customZones.value.length + 1;
+  return {
+    id: `CUSTOM_${Date.now()}_${nextIndex}`,
+    clientId: `CZ-${Date.now()}-${nextIndex}`,
+    nombre: "",
+    detalle: "Zona agregada manualmente para este calculo",
+    solo: false,
+    puedeIrCon: [],
+    custom: true,
+  };
+}
+
+function setCustomZoneNameRef(zoneId, element) {
+  if (element) {
+    customZoneNameRefs.value[zoneId] = element;
+    return;
+  }
+
+  delete customZoneNameRefs.value[zoneId];
+}
+
+function createRuleState() {
+  return {
+    priority: "",
+    dedicated: false,
+    canGroupWith: "",
+  };
+}
+
+function buildRuleMaps(configZonas) {
+  const priorityMap = new Map(
+    (configZonas?.prioritarias || []).map((item) => [normalizeZoneName(item?.nombre), Number(item?.peso) || 0]),
+  );
+  const dedicatedSet = new Set((configZonas?.dedicadas || []).map(normalizeZoneName).filter(Boolean));
+  const incompatibleMap = new Map();
+
+  (configZonas?.incompatibles || []).forEach((pair) => {
+    if (!Array.isArray(pair) || pair.length !== 2) {
+      return;
+    }
+
+    const [left, right] = pair.map(normalizeZoneName);
+    if (!left || !right || left === right) {
+      return;
+    }
+
+    if (!incompatibleMap.has(left)) {
+      incompatibleMap.set(left, new Set());
+    }
+
+    incompatibleMap.get(left).add(right);
+  });
+
+  return { priorityMap, dedicatedSet, incompatibleMap };
+}
+
+function ensureZoneState(zones) {
+  const activeIds = new Set(zones.map((zone) => zone.id));
+
+  zones.forEach((zone) => {
+    if (!zoneState[zone.id]) {
+      zoneState[zone.id] = {
+        enabled: true,
+        peso: "",
+        valor: "",
+        clientes: "",
+      };
+    }
+  });
+
+  Object.keys(zoneState).forEach((zoneId) => {
+    if (!activeIds.has(zoneId)) {
+      delete zoneState[zoneId];
+    }
+  });
+}
+
+function ensureRuleState(zones, configZonas = territoryConfig.value) {
+  const activeIds = new Set(zones.map((zone) => zone.id));
+  const { priorityMap, dedicatedSet } = buildRuleMaps(configZonas);
+
+  zones.forEach((zone) => {
+    if (!ruleState[zone.id]) {
+      const zoneName = normalizeZoneName(zone.nombre);
+      ruleState[zone.id] = createRuleState();
+      ruleState[zone.id].priority = priorityMap.get(zoneName) ? String(priorityMap.get(zoneName)) : "";
+      ruleState[zone.id].dedicated = dedicatedSet.has(zoneName) || Boolean(zone.solo);
+      ruleState[zone.id].canGroupWith = Array.isArray(zone.puedeIrCon) ? zone.puedeIrCon.join(", ") : "";
+    }
+  });
+
+  Object.keys(ruleState).forEach((zoneId) => {
+    if (!activeIds.has(zoneId)) {
+      delete ruleState[zoneId];
+    }
+  });
 }
 
 function onToggle(zoneId) {
@@ -123,7 +295,7 @@ function onZoneInput(zoneId) {
 }
 
 function resetForm() {
-  ALL_ZONES.forEach((zone) => {
+  allZones.value.forEach((zone) => {
     zoneState[zone.id].enabled = true;
     zoneState[zone.id].peso = "";
     zoneState[zone.id].valor = "";
@@ -131,20 +303,177 @@ function resetForm() {
   });
 
   costoExterno.value = "0";
-  vehicleState.camionetas.splice(0, vehicleState.camionetas.length, ...DEFAULT_VANS.map((vehiculo) => ({ ...vehiculo })));
-  vehicleState.camiones.splice(0, vehicleState.camiones.length, ...DEFAULT_TRUCKS.map((vehiculo) => ({ ...vehiculo })));
+  porcentajeUtilidad.value = "100";
+  clearFleetState();
+  customZones.value = [];
+  ensureRuleState([...mainZones.value, ...soloZones.value], territoryConfig.value);
   errorMessage.value = "";
   feedbackMessage.value = "";
   serverResponse.value = null;
+
+  if (!territoryLoaded.value) {
+    feedbackMessage.value = "Puedes seguir trabajando con zonas manuales aunque la configuración base no haya cargado.";
+  }
+}
+
+function createVehicle() {
+  const nextIndex = vehicleState.unidades.length + 1;
+
+  return {
+    id: `VEHICULO_${Date.now()}_${nextIndex}`,
+    codigo: `VEHICULO_${nextIndex}`,
+    nombre: `Vehículo ${nextIndex}`,
+    capacidadKg: "",
+    capacidadClientes: "",
+    disponible: true,
+    canServe: "",
+  };
+}
+
+function clearFleetState() {
+  vehicleState.unidades.splice(0, vehicleState.unidades.length);
+}
+
+function addVehicle() {
+  vehicleState.unidades.push(createVehicle());
+}
+
+function removeVehicle(vehicleId) {
+  const list = vehicleState.unidades;
+  const index = list.findIndex((vehicle) => String(vehicle.id) === String(vehicleId));
+  if (index >= 0) {
+    list.splice(index, 1);
+  }
+}
+
+function addCustomZone() {
+  const zone = createCustomZone();
+  zoneState[zone.id] = {
+    enabled: true,
+    peso: "",
+    valor: "",
+    clientes: "",
+  };
+  ruleState[zone.id] = createRuleState();
+  customZones.value = [...customZones.value, zone];
+  feedbackMessage.value = "Zona adicional lista para capturar.";
+
+  nextTick(() => {
+    customZoneNameRefs.value[zone.id]?.focus();
+  });
+}
+
+function removeCustomZone(zoneId) {
+  customZones.value = customZones.value.filter((zone) => zone.id !== zoneId);
+  delete zoneState[zoneId];
+  delete ruleState[zoneId];
+  delete customZoneNameRefs.value[zoneId];
+}
+
+function buildZoneConfigPayload() {
+  const prioritarias = [];
+  const dedicadas = [];
+  const incompatibles = [];
+  const errors = [];
+  const zoneNames = new Set();
+
+  allZones.value.forEach((zone) => {
+    const zoneName = normalizeZoneName(zone.nombre);
+    if (zoneName) {
+      zoneNames.add(zoneName);
+    }
+  });
+
+  allZones.value.forEach((zone) => {
+    const zoneName = normalizeZoneName(zone.nombre);
+    const rule = ruleState[zone.id];
+
+    if (!zoneName || !rule) {
+      return;
+    }
+
+    const priority = Number(rule.priority);
+    if (Number.isFinite(priority) && priority > 0) {
+      prioritarias.push({ nombre: zoneName, peso: priority });
+    }
+
+    if (rule.dedicated) {
+      dedicadas.push(zoneName);
+    }
+
+    const allowedTargets = String(rule.canGroupWith || "")
+      .split(",")
+      .map((value) => normalizeZoneName(value))
+      .filter(Boolean);
+
+    if (rule.dedicated) {
+      zoneNames.forEach((otherZoneName) => {
+        if (otherZoneName !== zoneName) {
+          incompatibles.push([zoneName, otherZoneName]);
+        }
+      });
+      return;
+    }
+
+    allowedTargets.forEach((targetName) => {
+      if (targetName === zoneName) {
+        errors.push(`La zona ${zoneName} no puede ponerse a si misma en "puede ir con".`);
+        return;
+      }
+
+      if (!zoneNames.has(targetName)) {
+        errors.push(`La zona ${zoneName} referencia ${targetName} en "puede ir con", pero esa zona no existe en el formulario.`);
+      }
+    });
+
+    if (allowedTargets.length > 0) {
+      zoneNames.forEach((otherZoneName) => {
+        if (otherZoneName !== zoneName && !allowedTargets.includes(otherZoneName)) {
+          incompatibles.push([zoneName, otherZoneName]);
+        }
+      });
+    }
+  });
+
+  const uniquePairs = [];
+  const seenPairs = new Set();
+
+  incompatibles.forEach(([left, right]) => {
+    const key = [left, right].sort().join("::");
+    if (!seenPairs.has(key)) {
+      seenPairs.add(key);
+      uniquePairs.push([left, right]);
+    }
+  });
+
+  return {
+    errors,
+    configZonas: {
+      prioritarias,
+      dedicadas,
+      incompatibles: uniquePairs,
+    },
+  };
 }
 
 function buildPayload() {
   const zonas = {};
+  const errors = [];
 
-  ALL_ZONES.forEach((zone) => {
+  allZones.value.forEach((zone) => {
     const state = zoneState[zone.id];
+    const zoneName = normalizeZoneName(zone.nombre);
 
     if (!state.enabled) {
+      return;
+    }
+
+    if (zone.custom && !zoneName && ((Number(state.peso) || 0) > 0 || (Number(state.valor) || 0) > 0 || (Number(state.clientes) || 0) > 0)) {
+      errors.push("Las zonas agregadas manualmente deben tener nombre.");
+      return;
+    }
+
+    if (!zoneName) {
       return;
     }
 
@@ -153,7 +482,13 @@ function buildPayload() {
     const clientes = Number(state.clientes) || 0;
 
     if (peso > 0 || valor > 0 || clientes > 0) {
-      zonas[zone.nombre] = {
+      if (zonas[zoneName]) {
+        errors.push(`La zona ${zoneName} esta repetida. Usa un nombre unico.`);
+        return;
+      }
+
+      zonas[zoneName] = {
+        id: zone.clientId || zone.id,
         peso,
         valor,
         clientes,
@@ -161,19 +496,53 @@ function buildPayload() {
     }
   });
 
+  const zoneConfigPayload = buildZoneConfigPayload();
+  errors.push(...zoneConfigPayload.errors);
+
+  const normalizedFleet = {
+    unidades: vehicleState.unidades.map((vehiculo) => ({
+      id: String(vehiculo.id || "").trim(),
+      codigo: String(vehiculo.codigo || vehiculo.id || "").trim(),
+      nombre: String(vehiculo.nombre || "").trim(),
+      capacidadKg: Number(vehiculo.capacidadKg) || 0,
+      capacidadClientes: Number(vehiculo.capacidadClientes) || 0,
+      disponible: Boolean(vehiculo.disponible),
+      zonasPermitidas: String(vehiculo.canServe || "")
+        .split(",")
+        .map((value) => normalizeZoneName(value))
+        .filter(Boolean),
+    })),
+  };
+
+  normalizedFleet.unidades.forEach((vehiculo, index) => {
+    if (!vehiculo.disponible) {
+      return;
+    }
+
+    if (!vehiculo.id) {
+      errors.push(`El vehículo ${index + 1} debe tener ID.`);
+    }
+
+    if (!vehiculo.nombre) {
+      errors.push(`El vehículo ${index + 1} debe tener nombre.`);
+    }
+
+    if (vehiculo.capacidadKg <= 0) {
+      errors.push(`El vehículo ${vehiculo.nombre || index + 1} debe tener capacidad en kg mayor a cero.`);
+    }
+
+    if (vehiculo.capacidadClientes <= 0) {
+      errors.push(`El vehículo ${vehiculo.nombre || index + 1} debe tener capacidad de clientes mayor a cero.`);
+    }
+  });
+
   return {
     zonas,
+    errors,
     costoExterno: Number(costoExterno.value) || 0,
-    vehiculos: {
-      camionetas: vehicleState.camionetas.map((vehiculo) => ({
-        id: vehiculo.id,
-        disponible: Boolean(vehiculo.disponible),
-      })),
-      camiones: vehicleState.camiones.map((vehiculo) => ({
-        id: vehiculo.id,
-        disponible: Boolean(vehiculo.disponible),
-      })),
-    },
+    porcentajeUtilidad: Number(porcentajeUtilidad.value) || 0,
+    configZonas: zoneConfigPayload.configZonas,
+    vehiculos: normalizedFleet,
   };
 }
 
@@ -187,8 +556,7 @@ function formatWeight(value) {
 
 function assignmentTypeLabel(type) {
   return {
-    camioneta: "Camioneta",
-    camion: "Camión",
+    propio: "Propio",
     externo: "Externo",
     posponer: "Posponer",
   }[type] || "Sin tipo";
@@ -196,8 +564,7 @@ function assignmentTypeLabel(type) {
 
 function assignmentTypeIcon(type) {
   return {
-    camioneta: "RV",
-    camion: "CM",
+    propio: "VP",
     externo: "EX",
     posponer: "PP",
   }[type] || "--";
@@ -210,7 +577,18 @@ function assignmentExtraText(assignment) {
     details.push(assignment.motivo);
   }
 
+  if (Number(assignment.valorFacturado) > 0) {
+    details.push(`Facturado: ${formatCurrency(assignment.valorFacturado)}`);
+  }
+
+  if (Number(assignment.porcentajeOcupacion) > 0) {
+    details.push(`Ocupación: ${assignment.porcentajeOcupacion}%`);
+  }
+
   if (assignment.tipo === "externo") {
+    if (Number(assignment.indicadorFlete) > 0) {
+      details.push(`Flete: ${assignment.indicadorFlete}% del valor`);
+    }
     details.push(`Ganancia neta: ${formatCurrency(assignment.gananciaNeta)}`);
     return details.join(" · ");
   }
@@ -232,12 +610,29 @@ function enabledVehiclesCount(vehicles) {
   return vehicles.filter((vehiculo) => vehiculo.disponible).length;
 }
 
-function soloZoneTypeLabel(zoneId) {
-  if (zoneId === "MACHIQUES" || zoneId === "MARA") {
-    return "Zona independiente / solo camión";
-  }
+async function loadDispatchConfig() {
+  errorMessage.value = "";
 
-  return "Zona independiente";
+  try {
+    const response = await fetch(`${API_BASE_URL}/dispatch/config`);
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok || !result?.territory) {
+      throw new Error(result?.error || "No se pudo cargar la configuración del territorio.");
+    }
+
+    // El front opera solo con zonas manuales para evitar territorio fijo en la UI.
+    mainZones.value = [];
+    soloZones.value = [];
+    territoryConfig.value = result.territory.configZonas || null;
+    ensureZoneState([...mainZones.value, ...soloZones.value]);
+    ensureRuleState([...mainZones.value, ...soloZones.value], territoryConfig.value);
+    territoryLoaded.value = true;
+  } catch (error) {
+    territoryLoaded.value = false;
+    feedbackMessage.value = "No se pudo cargar la configuración base del territorio. Puedes agregar zonas manuales y definir sus condiciones desde el frontend.";
+    errorMessage.value = "";
+  }
 }
 
 async function calculateDispatch() {
@@ -248,6 +643,11 @@ async function calculateDispatch() {
 
   try {
     const payload = buildPayload();
+
+    if (payload.errors.length) {
+      errorMessage.value = payload.errors[0];
+      return;
+    }
 
     if (!Object.keys(payload.zonas).length) {
       errorMessage.value = "Carga al menos una zona con peso o valor antes de calcular.";
@@ -270,13 +670,22 @@ async function calculateDispatch() {
     }
 
     serverResponse.value = result;
-    feedbackMessage.value = `Plan generado para ${result.zonasActivas.length} zona(s) activa(s).`;
+    const activeCount = Array.isArray(result.zonasActivas)
+      ? result.zonasActivas.length
+      : Array.isArray(result.zonas_input)
+        ? result.zonas_input.length
+        : 0;
+    feedbackMessage.value = `Plan generado para ${activeCount} zona(s) activa(s).`;
   } catch (error) {
     errorMessage.value = `Error calculando despacho: ${error.message}`;
   } finally {
     loading.value = false;
   }
 }
+
+onMounted(() => {
+  loadDispatchConfig();
+});
 </script>
 
 <template>
@@ -305,7 +714,7 @@ async function calculateDispatch() {
           </div>
         </div>
 
-        <div class="section-block">
+        <div v-if="hasPresetMainZones" class="section-block">
           <span class="section-label">Zonas principales</span>
           <div class="table-shell">
             <table class="zone-table">
@@ -320,7 +729,7 @@ async function calculateDispatch() {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="zone in MAIN_ZONES" :key="zone.id" :class="zoneRowClass(zone.id)">
+                <tr v-for="zone in mainZones" :key="zone.id" :class="zoneRowClass(zone.id)">
                   <td class="center-cell">
                     <input v-model="zoneState[zone.id].enabled" class="toggle" type="checkbox" @change="onToggle(zone.id)" />
                   </td>
@@ -373,7 +782,7 @@ async function calculateDispatch() {
           </div>
         </div>
 
-        <div class="section-block">
+        <div v-if="hasPresetSoloZones" class="section-block">
           <span class="section-label">Zonas independientes</span>
           <div class="table-shell">
             <table class="zone-table">
@@ -388,7 +797,7 @@ async function calculateDispatch() {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="zone in SOLO_ZONES" :key="zone.id" :class="zoneRowClass(zone.id)">
+                <tr v-for="zone in soloZones" :key="zone.id" :class="zoneRowClass(zone.id)">
                   <td class="center-cell">
                     <input v-model="zoneState[zone.id].enabled" class="toggle" type="checkbox" @change="onToggle(zone.id)" />
                   </td>
@@ -434,7 +843,159 @@ async function calculateDispatch() {
                       @input="onZoneInput(zone.id)"
                     />
                   </td>
-                  <td class="hint-cell">{{ soloZoneTypeLabel(zone.id) }}</td>
+                  <td class="hint-cell">{{ zone.detalle || "Zona independiente" }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="section-block">
+          <div class="section-header-inline">
+            <span class="section-label">Zonas del cálculo</span>
+            <button class="mini-button" type="button" @click="addCustomZone">
+              Agregar zona
+            </button>
+          </div>
+
+          <div v-if="customZones.length" class="table-shell">
+            <table class="zone-table">
+              <thead>
+                <tr>
+                  <th>Activa</th>
+                  <th>ID</th>
+                  <th>Zona</th>
+                  <th>Peso (kg)</th>
+                  <th>Valor ($)</th>
+                  <th>Clientes</th>
+                  <th>Detalle</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="zone in customZones" :key="zone.id" :class="zoneRowClass(zone.id)">
+                  <td class="center-cell">
+                    <input v-model="zoneState[zone.id].enabled" class="toggle" type="checkbox" @change="onToggle(zone.id)" />
+                  </td>
+                  <td>
+                    <input
+                      v-model="zone.clientId"
+                      class="zone-input"
+                      type="text"
+                      placeholder="ID de la zona"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      v-model="zone.nombre"
+                      :ref="(element) => setCustomZoneNameRef(zone.id, element)"
+                      class="zone-input"
+                      type="text"
+                      placeholder="Nombre de la zona"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      v-model="zoneState[zone.id].peso"
+                      class="zone-input"
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="0 kg"
+                      :disabled="!zoneState[zone.id].enabled"
+                      @input="onZoneInput(zone.id)"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      v-model="zoneState[zone.id].valor"
+                      class="zone-input"
+                      type="number"
+                      min="0"
+                      step="100"
+                      placeholder="$0"
+                      :disabled="!zoneState[zone.id].enabled"
+                      @input="onZoneInput(zone.id)"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      v-model="zoneState[zone.id].clientes"
+                      class="zone-input"
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="0 clientes"
+                      :disabled="!zoneState[zone.id].enabled"
+                      @input="onZoneInput(zone.id)"
+                    />
+                  </td>
+                  <td class="hint-cell">{{ zone.detalle }}</td>
+                  <td class="center-cell">
+                    <button class="remove-zone-button" type="button" @click="removeCustomZone(zone.id)">
+                      Quitar
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p v-else class="empty-custom-zones">
+            No hay zonas precargadas. Agrega aquí las zonas que quieras usar en este cálculo.
+          </p>
+        </div>
+
+        <div class="section-block">
+          <div class="card-title-row card-title-row-tight">
+            <div>
+              <strong>Condiciones del optimizador</strong>
+              <p>Define prioridad, salida en solitario y zonas que pueden ir juntas.</p>
+            </div>
+          </div>
+
+          <div class="table-shell">
+            <table class="zone-table rules-table">
+              <thead>
+                <tr>
+                  <th>Zona</th>
+                  <th>Prioridad</th>
+                  <th>Sale sola</th>
+                  <th>Puede ir con</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="zone in allZones" :key="`rule-${zone.id}`">
+                  <td>
+                    <div class="zone-name">
+                      <span class="zone-dot" :class="{ 'zone-dot-solo': zone.solo || zone.custom }" />
+                      <div>
+                        <strong>{{ zone.nombre || 'Zona nueva' }}</strong>
+                        <p class="rule-zone-note">ID: {{ zone.clientId || zone.id }} · {{ zone.custom ? 'Configuracion manual para esta corrida' : (zone.combina || zone.detalle || 'Configuracion base') }}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <input
+                      v-model="ruleState[zone.id].priority"
+                      class="zone-input"
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="0"
+                    />
+                  </td>
+                  <td class="center-cell">
+                    <input v-model="ruleState[zone.id].dedicated" class="toggle" type="checkbox" />
+                  </td>
+                  <td>
+                    <input
+                      v-model="ruleState[zone.id].canGroupWith"
+                      class="zone-input"
+                      type="text"
+                      placeholder="Ej. ZONA_A, ZONA_B"
+                    />
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -444,45 +1005,66 @@ async function calculateDispatch() {
 
       <div class="fleet-grid">
         <article class="fleet-card">
-          <span>Camionetas propias</span>
-          <strong>{{ enabledVehiclesCount(vehicleState.camionetas) }}/{{ vehicleState.camionetas.length }} habilitadas</strong>
-          <small>Capacidad unitaria: 950 kg y 40 clientes</small>
-          <div class="vehicle-list">
-            <label v-for="vehiculo in vehicleState.camionetas" :key="vehiculo.nombre" class="vehicle-toggle-row">
-              <input v-model="vehiculo.disponible" type="checkbox" />
-              <span>{{ vehiculo.nombre }}</span>
-            </label>
+          <div class="fleet-card-head">
+            <div>
+              <span>Vehículos propios</span>
+              <strong>{{ enabledVehiclesCount(vehicleState.unidades) }}/{{ vehicleState.unidades.length }} habilitados</strong>
+              <small>Agrega manualmente cada vehículo, su capacidad y las zonas que puede atender.</small>
+            </div>
+            <button class="mini-button" type="button" @click="addVehicle">Agregar</button>
           </div>
-        </article>
-        <article class="fleet-card">
-          <span>Camiones propios</span>
-          <strong>{{ enabledVehiclesCount(vehicleState.camiones) }}/{{ vehicleState.camiones.length }} habilitados</strong>
-          <small>Capacidad unitaria: 5.000 kg y 30 clientes</small>
           <div class="vehicle-list">
-            <label v-for="vehiculo in vehicleState.camiones" :key="vehiculo.nombre" class="vehicle-toggle-row">
-              <input v-model="vehiculo.disponible" type="checkbox" />
-              <span>{{ vehiculo.nombre }}</span>
-            </label>
+            <p v-if="!vehicleState.unidades.length" class="empty-custom-zones">
+              No hay vehículos cargados. Agrégalos manualmente para esta corrida.
+            </p>
+            <div v-for="vehiculo in vehicleState.unidades" :key="vehiculo.id" class="vehicle-editor">
+              <div class="vehicle-editor-row">
+                <input v-model="vehiculo.id" class="zone-input" type="text" placeholder="ID" />
+                <input v-model="vehiculo.nombre" class="zone-input" type="text" placeholder="Nombre" />
+              </div>
+              <div class="vehicle-editor-row vehicle-editor-row-compact">
+                <input v-model="vehiculo.capacidadKg" class="zone-input" type="number" min="0" step="1" placeholder="Cap. kg" />
+                <input v-model="vehiculo.capacidadClientes" class="zone-input" type="number" min="0" step="1" placeholder="Cap. clientes" />
+              </div>
+              <div class="vehicle-editor-row">
+                <input v-model="vehiculo.canServe" class="zone-input" type="text" placeholder="Zonas permitidas, ej. ZONA_A, ZONA_B" />
+                <input v-model="vehiculo.codigo" class="zone-input" type="text" placeholder="Código interno" />
+              </div>
+              <div class="vehicle-toggle-actions">
+                <label class="vehicle-toggle-row">
+                  <input v-model="vehiculo.disponible" type="checkbox" />
+                  <span>Disponible</span>
+                </label>
+                <button class="remove-zone-button" type="button" @click="removeVehicle(vehiculo.id)">Quitar</button>
+              </div>
+            </div>
           </div>
         </article>
         <article class="fleet-card fleet-card-form">
           <label for="costoExterno">Costo vehículo externo ($)</label>
           <input id="costoExterno" v-model="costoExterno" class="zone-input" type="number" min="0" step="500" placeholder="0" />
           <small>Se usa cuando la flota propia no alcanza.</small>
+          <label for="porcentajeUtilidad" style="margin-top: 1rem;">% utilidad sobre facturado</label>
+          <input id="porcentajeUtilidad" v-model="porcentajeUtilidad" class="zone-input" type="number" min="0" max="100" step="0.1" placeholder="100" />
+          <small>El optimizador usará este porcentaje del monto facturado como ganancia estimada.</small>
         </article>
       </div>
 
       <div class="action-row">
-        <button class="primary-button" type="button" :disabled="loading" @click="calculateDispatch">
+        <button class="primary-button" type="button" :disabled="loading || !canWorkManually" @click="calculateDispatch">
           {{ loading ? "Calculando..." : "Calcular plan" }}
         </button>
-        <button class="ghost-button" type="button" @click="resetForm">
+        <button class="ghost-button" type="button" :disabled="!hasAnyZoneRows" @click="resetForm">
           Limpiar
         </button>
         <button class="ghost-button" type="button" @click="window.print()">
           Imprimir
         </button>
       </div>
+
+      <p v-if="!territoryLoaded && !feedbackMessage && !errorMessage" class="feedback success-text">
+        Cargando configuración de territorio...
+      </p>
 
       <p v-if="errorMessage" class="feedback error-text">
         {{ errorMessage }}
@@ -504,8 +1086,26 @@ async function calculateDispatch() {
           <div class="card-title-row">
             <div>
               <strong>Asignaciones de vehículos</strong>
-              <p>Resultado del motor de despacho priorizando cobertura, camionetas en zonas flexibles y apoyo de camión cuando hace falta.</p>
+              <p>Resultado del optimizador desacoplado: flota propia, externos y rutas pospuestas usando el contrato nuevo del backend.</p>
             </div>
+          </div>
+
+          <div v-if="optimizerStrategy" class="strategy-grid">
+            <article class="strategy-card">
+              <span class="strategy-label">Motor</span>
+              <strong>{{ optimizerStrategy.busqueda_completa ? "Búsqueda completa" : "Búsqueda parcial" }}</strong>
+              <p>{{ optimizerStrategy.criterio }}</p>
+            </article>
+            <article class="strategy-card">
+              <span class="strategy-label">Combinaciones evaluadas</span>
+              <strong>{{ Number(optimizerStrategy.combinaciones_evaluadas || 0).toLocaleString('es-VE') }}</strong>
+              <p>Prioridad pospuesta: {{ optimizerStrategy.prioridad_pospuesta || 0 }}</p>
+            </article>
+            <article class="strategy-card">
+              <span class="strategy-label">Valor neto óptimo</span>
+              <strong>{{ formatCurrency(optimizerStrategy.valor_neto_optimo) }}</strong>
+              <p>Zonas atendidas hoy: {{ optimizerStrategy.zonas_atendidas_hoy?.length || 0 }}</p>
+            </article>
           </div>
 
           <div v-if="serverResponse.recomendaciones?.length" class="recommendations-panel">
@@ -516,7 +1116,7 @@ async function calculateDispatch() {
           </div>
 
           <div class="assignments-list">
-            <article v-for="assignment in serverResponse.asignaciones" :key="`${assignment.tipo}-${assignment.vehiculo || 'pendiente'}-${assignment.zonas.join('-')}`" class="assignment-card" :class="`assignment-card-${assignment.tipo}`">
+            <article v-for="assignment in dispatchAssignments" :key="`${assignment.tipo}-${assignment.vehiculo || 'pendiente'}-${assignment.zonas.join('-')}`" class="assignment-card" :class="`assignment-card-${assignment.tipo}`">
               <div class="assignment-head">
                 <div class="assignment-chip">{{ assignmentTypeIcon(assignment.tipo) }}</div>
                 <div>
@@ -645,8 +1245,20 @@ h1 {
   color: rgba(243, 246, 251, 0.68);
 }
 
+.card-title-row-tight {
+  margin-bottom: 0.8rem;
+}
+
 .section-block + .section-block {
   margin-top: 1.25rem;
+}
+
+.section-header-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.8rem;
 }
 
 .section-label {
@@ -667,6 +1279,10 @@ h1 {
   width: 100%;
   border-collapse: collapse;
   min-width: 860px;
+}
+
+.rules-table {
+  min-width: 980px;
 }
 
 .zone-table th {
@@ -708,6 +1324,12 @@ h1 {
   gap: 0.65rem;
 }
 
+.rule-zone-note {
+  margin-top: 0.2rem;
+  color: rgba(243, 246, 251, 0.58);
+  font-size: 0.84rem;
+}
+
 .zone-dot {
   width: 10px;
   height: 10px;
@@ -740,6 +1362,35 @@ h1 {
   cursor: not-allowed;
 }
 
+.mini-button,
+.remove-zone-button {
+  min-height: 36px;
+  padding: 0.55rem 0.9rem;
+  border-radius: 999px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mini-button {
+  border: 1px solid rgba(97, 241, 178, 0.34);
+  background: rgba(97, 241, 178, 0.1);
+  color: #baf9d9;
+}
+
+.remove-zone-button {
+  border: 1px solid rgba(255, 125, 125, 0.24);
+  background: rgba(255, 125, 125, 0.08);
+  color: #ffc1c1;
+}
+
+.empty-custom-zones {
+  padding: 1rem 1.1rem;
+  border-radius: 16px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  color: rgba(243, 246, 251, 0.68);
+  background: rgba(255, 255, 255, 0.03);
+}
+
 .hint-cell {
   color: rgba(243, 246, 251, 0.62);
   font-size: 0.9rem;
@@ -763,6 +1414,13 @@ h1 {
 .fleet-card label,
 .fleet-card small {
   display: block;
+}
+
+.fleet-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
 }
 
 .fleet-card span,
@@ -790,6 +1448,35 @@ h1 {
   display: grid;
   gap: 0.55rem;
   margin-top: 0.9rem;
+}
+
+.vehicle-editor {
+  padding: 0.75rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.vehicle-editor-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.9fr) minmax(0, 1.4fr);
+  gap: 0.65rem;
+}
+
+.vehicle-editor-row + .vehicle-editor-row {
+  margin-top: 0.65rem;
+}
+
+.vehicle-editor-row-compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.vehicle-toggle-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 0.75rem;
 }
 
 .vehicle-toggle-row {
@@ -934,6 +1621,39 @@ h1 {
   margin-top: 0.4rem;
 }
 
+.strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.strategy-card {
+  padding: 1rem 1.05rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(8, 19, 30, 0.72);
+}
+
+.strategy-label {
+  display: block;
+  color: rgba(243, 246, 251, 0.68);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.74rem;
+}
+
+.strategy-card strong {
+  display: block;
+  margin-top: 0.45rem;
+  font-size: 1.2rem;
+}
+
+.strategy-card p {
+  margin-top: 0.45rem;
+  color: rgba(243, 246, 251, 0.72);
+}
+
 .assignment-card {
   display: grid;
   grid-template-columns: minmax(180px, 220px) 1fr minmax(150px, 180px);
@@ -944,12 +1664,8 @@ h1 {
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.assignment-card-camioneta {
+.assignment-card-propio {
   border-left: 4px solid #53b7ff;
-}
-
-.assignment-card-camion {
-  border-left: 4px solid #50d98b;
 }
 
 .assignment-card-externo {
@@ -1003,16 +1719,10 @@ h1 {
   font-weight: 700;
 }
 
-.zone-pill-camioneta {
+.zone-pill-propio {
   border-color: rgba(83, 183, 255, 0.34);
   background: rgba(83, 183, 255, 0.12);
   color: #8cd8ff;
-}
-
-.zone-pill-camion {
-  border-color: rgba(80, 217, 139, 0.34);
-  background: rgba(80, 217, 139, 0.12);
-  color: #9af3c3;
 }
 
 .zone-pill-externo {
@@ -1061,6 +1771,10 @@ h1 {
     grid-template-columns: 1fr;
   }
 
+  .strategy-grid {
+    grid-template-columns: 1fr;
+  }
+
   .assignment-card {
     grid-template-columns: 1fr;
   }
@@ -1073,6 +1787,22 @@ h1 {
 @media (max-width: 720px) {
   .hero-panel {
     flex-direction: column;
+  }
+
+  .section-header-inline {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .fleet-card-head,
+  .vehicle-toggle-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .vehicle-editor-row,
+  .vehicle-editor-row-compact {
+    grid-template-columns: 1fr;
   }
 
   .hero-meta {

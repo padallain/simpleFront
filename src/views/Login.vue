@@ -1,108 +1,93 @@
 <template>
-  <div class="login-bg">
-    <div class="login-form">
-      <div class="logo">
-        <img :src="easyMoveLogo" alt="easyMove logo" class="logo-img" />
-      </div>
-      <el-form label-width="120px" class="el-form-custom">
-        <el-form-item label="Email">
-          <el-input v-model="email" placeholder="logtracker@gmail.com" />
-        </el-form-item>
-        <el-form-item label="Password">
-          <el-input v-model="password" type="password" placeholder="12345678" />
-        </el-form-item>
-        <el-button type="primary" class="register-btn" style="width: 100%">
-          Register
-        </el-button>
-      </el-form>
-      <div class="login-links">
-        <a href="#">Forgot Password?</a>
-        <a href="#" style="float: right" @click.prevent="goToSign">Sign in</a>
+  <section class="auth-page">
+    <div class="auth-layout">
+      <aside class="auth-hero">
+        <div class="auth-brand">
+          <span class="auth-brand-mark">MR</span>
+          <div class="auth-brand-copy">
+            <span class="auth-brand-name">MakeRoute</span>
+            <span class="auth-brand-tag">Logistica y control operativo</span>
+          </div>
+        </div>
+
+        <div class="auth-hero-copy">
+          <span class="auth-kicker">Acceso del equipo</span>
+          <h1>Ingresa y sigue operando sin perder el ritmo.</h1>
+          <p>
+            Accede a tus rutas, chequeos y paneles con la misma identidad visual del resto de la plataforma.
+          </p>
+        </div>
+
+        <div class="auth-points">
+          <div class="auth-point">
+            <span class="auth-point-label">Rutas</span>
+            <strong>Planeacion y seguimiento</strong>
+          </div>
+          <div class="auth-point">
+            <span class="auth-point-label">Operaciones</span>
+            <strong>Despacho y chequeos diarios</strong>
+          </div>
+          <div class="auth-point">
+            <span class="auth-point-label">Acceso</span>
+            <strong>Seguro y rapido para el equipo</strong>
+          </div>
+        </div>
+      </aside>
+
+      <div class="auth-panel">
+        <div class="auth-panel-header">
+          <img :src="easyMoveLogo" alt="Easy Move" />
+          <h2>Iniciar sesion</h2>
+          <p>Usa tu correo corporativo para entrar al panel de MakeRoute.</p>
+        </div>
+
+        <form class="auth-form" @submit.prevent>
+          <div class="auth-field">
+            <label for="login-email">Correo electronico</label>
+            <input id="login-email" v-model="email" type="email" placeholder="operaciones@empresa.com" autocomplete="email" />
+          </div>
+
+          <div class="auth-field">
+            <label for="login-password">Contrasena</label>
+            <input id="login-password" v-model="password" type="password" placeholder="Ingresa tu contrasena" autocomplete="current-password" />
+          </div>
+
+          <div class="auth-inline-row">
+            <label class="auth-check">
+              <input v-model="rememberSession" type="checkbox" />
+              <span>Mantener sesion abierta</span>
+            </label>
+
+            <a href="#" class="auth-link" @click.prevent="goToRecover">Recuperar contrasena</a>
+          </div>
+
+          <button class="auth-submit" type="submit">Entrar al sistema</button>
+        </form>
+
+        <p class="auth-switch">
+          Aun no tienes cuenta?
+          <a href="#" @click.prevent="goToSign">Crear cuenta</a>
+        </p>
       </div>
     </div>
-  </div>
+  </section>
 </template>
 
 <script setup>
 import { ref } from "vue";
 import { useRouter } from "vue-router";
-const router = useRouter();
 import easyMoveLogo from "../assets/easyMove.png";
+
+const router = useRouter();
 const email = ref("");
 const password = ref("");
+const rememberSession = ref(true);
 
 function goToSign() {
   router.push("/signup");
 }
 
-
+function goToRecover() {
+  router.push("/recover-password");
+}
 </script>
-
-<style scoped>
-.login-bg {
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
-  background: url("../assets/traffic.jpg") center center/cover no-repeat;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 0;
-}
-.login-form {
-  position: relative;
-  z-index: 1;
-  background: rgba(255,255,255,0.95);
-  padding: 2rem;
-  border-radius: 16px;
-  width: 420px;        /* ancho fijo */
-  max-width: 90vw;     /* responsivo en pantallas pequeñas */
-  min-width: 320px;
-  box-shadow: 0 4px 32px rgba(0,0,0,0.15);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.el-form-custom {
-  width: 350px; /* o el ancho que prefieras */
-  display: flex;
-  flex-direction: column;
-  align-items: center; /* Centra los items del form */
-}
-.el-form-item {
-  width: 110%;
-  margin-right: 4rem;
-}
-.el-form-item__label {
-  min-width: 120px;
-  color: blue;
-  margin-right: 1rem;
-}
-.logo {
-  text-align: center;
-  margin-bottom: 2rem;
-  width: 100%;
-}
-.logo-img {
-  width: 250px;
-  margin-bottom: 0.5rem;
-}
-.register-btn {
-  margin-top: 1rem;
-  background: #7c3aed;
-  border: none;
-}
-.login-links {
-  width: 100%;
-  margin-top: 1.5rem;
-  font-size: 0.95rem;
-  color: #333;
-  display: flex;
-  justify-content: space-between;
-}
-.login-links a {
-  color: #333;
-  text-decoration: none;
-}
-</style>

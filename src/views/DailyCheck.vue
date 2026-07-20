@@ -122,9 +122,29 @@
           </div>
         </section>
 
+        <div class="submit-status" aria-live="polite">
+          <div v-if="enviando" class="status-card status-card-sending">
+            <span class="status-icon status-icon-spinner" aria-hidden="true"></span>
+            <div>
+              <strong>Enviando reporte...</strong>
+              <p>Estamos guardando el chequeo del vehiculo en el sistema.</p>
+            </div>
+          </div>
+
+          <div v-else-if="ultimoEnvio" class="status-card status-card-success">
+            <span class="status-icon status-icon-success" aria-hidden="true">✓</span>
+            <div>
+              <strong>Reporte enviado correctamente</strong>
+              <p>
+                {{ ultimoEnvio.chofer }} · {{ ultimoEnvio.placa }} · {{ ultimoEnvio.fecha }}
+              </p>
+            </div>
+          </div>
+        </div>
+
         <div class="form-actions">
           <button type="submit" :disabled="!todosCompletos || enviando">
-            {{ enviando ? "Guardando..." : "Enviar" }}
+            {{ enviando ? "Guardando reporte..." : "Enviar reporte" }}
           </button>
         </div>
       </form>
@@ -135,6 +155,32 @@
       <div v-if="enviado" class="feedback-banner feedback-banner-success">
         <span class="checkmark">&#10003;</span>
         <span>¡Novedades enviadas!</span>
+      </div>
+
+      <div class="mobile-status-stack" aria-live="polite">
+        <div v-if="enviando" class="mobile-status-card mobile-status-card-sending">
+          <span class="mobile-status-icon mobile-status-icon-spinner" aria-hidden="true"></span>
+          <div>
+            <strong>Guardando reporte...</strong>
+            <p>No cierres la pantalla hasta recibir la confirmacion.</p>
+          </div>
+        </div>
+
+        <div v-else-if="ultimoEnvio" class="mobile-status-card mobile-status-card-success">
+          <span class="mobile-status-icon mobile-status-icon-success" aria-hidden="true">✓</span>
+          <div>
+            <strong>Reporte guardado</strong>
+            <p>{{ ultimoEnvio.chofer }} · {{ ultimoEnvio.placa }} · {{ ultimoEnvio.fecha }}</p>
+          </div>
+        </div>
+
+        <div v-else-if="errorMensaje" class="mobile-status-card mobile-status-card-error">
+          <span class="mobile-status-icon mobile-status-icon-error" aria-hidden="true">!</span>
+          <div>
+            <strong>No se pudo guardar</strong>
+            <p>{{ errorMensaje }}</p>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -169,6 +215,7 @@ const observaciones = ref("");
 const enviado = ref(false);
 const errorMensaje = ref("");
 const enviando = ref(false);
+const ultimoEnvio = ref(null);
 
 const totalChecks = computed(() => checklist.value.length);
 const okCount = computed(() => checklist.value.filter((item) => item.estado === "OK").length);
@@ -199,6 +246,7 @@ async function enviarNovedades() {
   enviando.value = true;
   errorMensaje.value = "";
   enviado.value = false;
+  ultimoEnvio.value = null;
 
   try {
     const payload = {
@@ -229,6 +277,14 @@ async function enviarNovedades() {
     }
 
     enviado.value = true;
+    ultimoEnvio.value = {
+      chofer: payload.chofer,
+      placa: payload.placa,
+      fecha: new Date().toLocaleTimeString("es-ES", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    };
     resetFormulario();
     setTimeout(() => {
       enviado.value = false;
@@ -505,6 +561,64 @@ textarea {
   justify-content: flex-end;
 }
 
+.submit-status {
+  min-height: 0;
+}
+
+.status-card {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+  border-radius: 20px;
+  border: 1px solid rgba(159, 209, 255, 0.16);
+  background: rgba(8, 17, 31, 0.72);
+  animation: fadeInScale 0.24s ease;
+}
+
+.status-card strong {
+  display: block;
+  color: #f4f7fb;
+}
+
+.status-card p {
+  margin: 0.25rem 0 0;
+  color: rgba(244, 247, 251, 0.72);
+}
+
+.status-card-sending {
+  border-color: rgba(69, 167, 255, 0.3);
+}
+
+.status-card-success {
+  border-color: rgba(46, 204, 113, 0.24);
+  background: rgba(18, 44, 31, 0.78);
+}
+
+.status-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.status-icon-spinner {
+  border: 3px solid rgba(69, 167, 255, 0.18);
+  border-top-color: #45a7ff;
+  animation: spin 0.9s linear infinite;
+}
+
+.status-icon-success {
+  background: rgba(46, 204, 113, 0.18);
+  color: #7df0a9;
+  font-size: 1.3rem;
+  font-weight: 800;
+  box-shadow: 0 0 0 10px rgba(46, 204, 113, 0.08);
+}
+
 .feedback-banner {
   display: flex;
   align-items: center;
@@ -529,6 +643,10 @@ textarea {
   animation: pop 0.4s;
 }
 
+.mobile-status-stack {
+  display: none;
+}
+
 @keyframes pop {
   0% { transform: scale(0.2); opacity: 0; }
   80% { transform: scale(1.2); opacity: 1; }
@@ -538,6 +656,11 @@ textarea {
 @keyframes fadeInScale {
   from { opacity: 0; transform: scale(0.95);}
   to { opacity: 1; transform: scale(1);}
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 @media (max-width: 900px) {
@@ -550,7 +673,7 @@ textarea {
 
 @media (max-width: 720px) {
   .daily-check-page {
-    padding: 1rem 0.75rem 2rem;
+    padding: 1rem 0.75rem 6.5rem;
   }
 
   .page-header {
@@ -576,6 +699,90 @@ textarea {
 
   .form-actions {
     justify-content: stretch;
+  }
+
+  .submit-status,
+  .feedback-banner {
+    display: none;
+  }
+
+  .mobile-status-stack {
+    display: block;
+    position: fixed;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    z-index: 300;
+    pointer-events: none;
+  }
+
+  .mobile-status-card {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.95rem 1rem;
+    border-radius: 20px;
+    border: 1px solid rgba(159, 209, 255, 0.16);
+    background: rgba(6, 16, 29, 0.94);
+    box-shadow: 0 18px 32px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    animation: slideUpFade 0.24s ease;
+  }
+
+  .mobile-status-card strong {
+    display: block;
+    color: #f4f7fb;
+  }
+
+  .mobile-status-card p {
+    margin: 0.2rem 0 0;
+    color: rgba(244, 247, 251, 0.78);
+    font-size: 0.92rem;
+  }
+
+  .mobile-status-card-sending {
+    border-color: rgba(69, 167, 255, 0.28);
+  }
+
+  .mobile-status-card-success {
+    border-color: rgba(46, 204, 113, 0.26);
+    background: rgba(12, 36, 27, 0.95);
+  }
+
+  .mobile-status-card-error {
+    border-color: rgba(248, 113, 113, 0.26);
+    background: rgba(68, 22, 22, 0.95);
+  }
+
+  .mobile-status-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .mobile-status-icon-spinner {
+    border: 3px solid rgba(69, 167, 255, 0.16);
+    border-top-color: #45a7ff;
+    animation: spin 0.9s linear infinite;
+  }
+
+  .mobile-status-icon-success {
+    background: rgba(46, 204, 113, 0.16);
+    color: #7df0a9;
+    font-size: 1.1rem;
+    font-weight: 800;
+  }
+
+  .mobile-status-icon-error {
+    background: rgba(248, 113, 113, 0.18);
+    color: #ffb4b4;
+    font-size: 1rem;
+    font-weight: 800;
   }
 }
 </style>

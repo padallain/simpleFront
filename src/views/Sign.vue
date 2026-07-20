@@ -1,99 +1,91 @@
 <template>
-  <div class="login-bg">
-    <div class="login-form">
-      <div class="logo">
-        <img :src="easyMoveLogo" alt="easyMove logo" class="logo-img" />
-      </div>
-      <el-form>
-        <div class="form-row">
-          <el-form-item label="Email">
-            <el-input v-model="email" placeholder="logtracker@gmail.com" />
-          </el-form-item>
-          <el-form-item label="username">
-            <el-input v-model="username" placeholder="@logtracker123" />
-          </el-form-item>
+  <section class="auth-page">
+    <div class="auth-layout">
+      <aside class="auth-hero">
+        <div class="auth-brand">
+          <span class="auth-brand-mark">MR</span>
+          <div class="auth-brand-copy">
+            <span class="auth-brand-name">MakeRoute</span>
+            <span class="auth-brand-tag">Alta de usuarios operativos</span>
+          </div>
         </div>
-        <el-form-item label="Password">
-          <el-input v-model="password" type="password" placeholder="12345678" />
-        </el-form-item>
-        <el-button type="primary" class="register-btn" style="width: 100%;">Register</el-button>
-      </el-form>
-      <div class="login-links">
-        <a href="#">Forgot Password?</a>
-        <a href="#" style="float: right;" @click.prevent="goToLogin">Log in</a>
+
+        <div class="auth-hero-copy">
+          <span class="auth-kicker">Registro</span>
+          <h1>Crea una cuenta alineada con el panel principal.</h1>
+          <p>
+            Prepara el acceso para choferes, despacho o coordinacion con una pantalla mas consistente y clara.
+          </p>
+        </div>
+
+        <div class="auth-points">
+          <div class="auth-point">
+            <span class="auth-point-label">Perfil</span>
+            <strong>Datos basicos del usuario</strong>
+          </div>
+          <div class="auth-point">
+            <span class="auth-point-label">Equipo</span>
+            <strong>Acceso para operaciones y control</strong>
+          </div>
+          <div class="auth-point">
+            <span class="auth-point-label">Continuidad</span>
+            <strong>Misma experiencia visual del sistema</strong>
+          </div>
+        </div>
+      </aside>
+
+      <div class="auth-panel">
+        <div class="auth-panel-header">
+          <img :src="easyMoveLogo" alt="Easy Move" />
+          <h2>Registrarse</h2>
+          <p>Completa los datos iniciales para generar tu acceso a MakeRoute.</p>
+        </div>
+
+        <form class="auth-form" @submit.prevent>
+          <div class="auth-field-group">
+            <div class="auth-field">
+              <label for="signup-email">Correo electronico</label>
+              <input id="signup-email" v-model="email" type="email" placeholder="equipo@empresa.com" autocomplete="email" />
+            </div>
+
+            <div class="auth-field">
+              <label for="signup-username">Usuario</label>
+              <input id="signup-username" v-model="username" type="text" placeholder="coordinacion_rutas" autocomplete="username" />
+            </div>
+          </div>
+
+          <div class="auth-field">
+            <label for="signup-password">Contrasena</label>
+            <input id="signup-password" v-model="password" type="password" placeholder="Crea una contrasena segura" autocomplete="new-password" />
+          </div>
+
+          <div class="auth-note">
+            Este flujo deja listo el frente para registro. La integracion con el backend puede conectarse despues sin rehacer el diseno.
+          </div>
+
+          <button class="auth-submit" type="submit">Crear cuenta</button>
+        </form>
+
+        <p class="auth-switch">
+          Ya tienes una cuenta?
+          <a href="#" @click.prevent="goToLogin">Iniciar sesion</a>
+        </p>
       </div>
     </div>
-  </div>
+  </section>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import easyMoveLogo from '../assets/easyMove.png'
+import { ref } from "vue";
+import { useRouter } from "vue-router";
+import easyMoveLogo from "../assets/easyMove.png";
 
-const router = useRouter()
-const email = ref('')
-const username = ref('')
-const password = ref('')
+const router = useRouter();
+const email = ref("");
+const username = ref("");
+const password = ref("");
 
 function goToLogin() {
-  router.push('/login')
+  router.push("/login");
 }
 </script>
-
-<style scoped>
-.login-bg {
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
-  background: url('../assets/traffic.jpg') center center/cover no-repeat;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 0;
-}
-.login-form {
-  position: relative;
-  z-index: 1;
-  background: rgba(255,255,255,0.95);
-  padding: 2rem;
-  border-radius: 16px;
-  width: 420px;        /* ancho fijo */
-  max-width: 90vw;     /* responsivo en pantallas pequeñas */
-  min-width: 320px;
-  box-shadow: 0 4px 32px rgba(0,0,0,0.15);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.logo {
-  text-align: center;
-  margin-bottom: 2rem;
-}
-.logo-img {
-  width: 300px;
-  margin-bottom: 0.5rem;
-}
-.form-row {
-  display: flex;
-  gap: 1rem;
-}
-.register-btn {
-  margin-top: 1rem;
-  background: #7c3aed;
-  border: none;
-}
-.login-links {
-  width: 100%;
-  margin-top: 1.5rem;
-  font-size: 0.95rem;
-  color: #333;
-  display: flex;
-  justify-content: space-between;
-}
-.login-links a {
-  color: #333;
-  text-decoration: none;
-}
-</style>

@@ -21,7 +21,10 @@ const PAGE_TITLES = {
   '/route-management': 'Gestión de Rutas',
 }
 
+const AUTH_ROUTES = new Set(['/login', '/signup', '/recover-password'])
+
 const currentPageTitle = computed(() => PAGE_TITLES[route.path] ?? '')
+const showTopNav = computed(() => !AUTH_ROUTES.has(route.path))
 
 function goToHome()                    { router.push('/') }
 function goToRoutes()                  { router.push('/routes') }
@@ -37,7 +40,7 @@ function goToVehicleMaintenance()      { router.push('/vehicle-maintenance-histo
 
 <template>
   <div class="app-shell">
-    <nav class="top-nav">
+    <nav v-if="showTopNav" class="top-nav">
       <!-- Brand mark — always links to home -->
       <button class="nav-brand" type="button" @click="goToHome" aria-label="Ir al inicio">
         <span class="brand-mark">MR</span>

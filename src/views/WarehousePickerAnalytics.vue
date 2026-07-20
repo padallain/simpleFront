@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
+import jsPDF from "jspdf";
 import { RouterLink } from "vue-router";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
@@ -95,6 +96,136 @@ function buildSummaryQuery() {
   }
 
   return params.toString();
+}
+
+function getFilterLabel() {
+  return useRange.value
+    ? `Periodo: ${fromDate.value} a ${toDate.value}`
+    : `Fecha: ${selectedDate.value}`;
+}
+
+function createPdfDocument(title) {
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.text(title, 14, 18);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(getFilterLabel(), 14, 25);
+  doc.text(`Generado: ${new Date().toLocaleString("es-CO")}`, 14, 31);
+  return doc;
+}
+
+function ensurePdfPageSpace(doc, currentY, requiredHeight = 10) {
+  if (currentY + requiredHeight <= 282) {
+    return currentY;
+  }
+
+  doc.addPage();
+  return 18;
+}
+
+function addPdfSectionTitle(doc, text, currentY) {
+  const nextY = ensurePdfPageSpace(doc, currentY, 10);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text(text, 14, nextY);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  return nextY + 7;
+}
+
+function addPdfTextRow(doc, label, value, currentY) {
+  const nextY = ensurePdfPageSpace(doc, currentY, 8);
+  doc.setFont("helvetica", "bold");
+  doc.text(`${label}:`, 14, nextY);
+  doc.setFont("helvetica", "normal");
+  doc.text(String(value), 58, nextY);
+  return nextY + 6;
+}
+
+function downloadSummaryPdf() {
+  if (!ranking.value.length && !reports.value.length) {
+    errorMessage.value = "Primero carga un resumen de picking para descargar el PDF.";
+    feedbackMessage.value = "";
+    return;
+  }
+
+  const doc = createPdfDocument("Reporte de picking");
+  let currentY = 40;
+
+  currentY = addPdfSectionTitle(doc, "Resumen general", currentY);
+  currentY = addPdfTextRow(doc, "Pedidos picados", formatInteger(overview.value.totalPedidos), currentY);
+  currentY = addPdfTextRow(doc, "Cajas movidas", formatInteger(overview.value.totalCajas), currentY);
+  currentY = addPdfTextRow(doc, "Almacenistas activos", formatInteger(overview.value.responsablesActivos), currentY);
+  currentY = addPdfTextRow(doc, "Errores reportados", formatInteger(overview.value.totalErrores), currentY);
+
+  if (topWorker.value) {
+    currentY += 3;
+    currentY = addPdfSectionTitle(doc, "Top picking", currentY);
+    currentY = addPdfTextRow(doc, "Responsable", topWorker.value.responsableId, currentY);
+    currentY = addPdfTextRow(doc, "Pedidos", formatInteger(topWorker.value.totalPedidos), currentY);
+    currentY = addPdfTextRow(doc, "Cajas", formatInteger(topWorker.value.totalCajas), currentY);
+  }
+
+  if (topErrorWorker.value) {
+    currentY += 3;
+    currentY = addPdfSectionTitle(doc, "Mayor numero de errores", currentY);
+    currentY = addPdfTextRow(doc, "Responsable", topErrorWorker.value.responsableId, currentY);
+    currentY = addPdfTextRow(doc, "Errores", formatInteger(topErrorWorker.value.totalErrores), currentY);
+  }
+
+  currentY += 3;
+  currentY = addPdfSectionTitle(doc, "Ranking por almacenista", currentY);
+  ranking.value.forEach((worker, index) => {
+    currentY = ensurePdfPageSpace(doc, currentY, 14);
+    doc.setFont("helvetica", "bold");
+    doc.text(`#${index + 1} ${worker.responsableId}`, 14, currentY);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Pedidos: ${formatInteger(worker.totalPedidos)} | Cajas: ${formatInteger(worker.totalCajas)} | Errores: ${formatInteger(worker.totalErrores)}`, 20, currentY + 5);
+    currentY += 11;
+  });
+
+  currentY += 3;
+  currentY = addPdfSectionTitle(doc, "Detalle de pedidos procesados", currentY);
+  reports.value.forEach((report) => {
+    currentY = ensurePdfPageSpace(doc, currentY, 14);
+    doc.setFont("helvetica", "bold");
+    doc.text(`${report.numeroPedido}`, 14, currentY);
+    doc.setFont("helvetica", "normal");
+    doc.text(`${formatDate(report.fechaHoraRegistro)} | ${report.responsableId} | ${formatInteger(report.numeroCajas)} cajas`, 20, currentY + 5);
+    currentY += 11;
+  });
+
+  doc.save(`picking_resumen_${useRange.value ? `${fromDate.value}_${toDate.value}` : selectedDate.value}.pdf`);
+}
+
+function downloadOrderPdf() {
+  if (!selectedOrderReport.value) {
+    orderLookupError.value = "Primero busca un pedido para descargar su reporte en PDF.";
+    orderLookupFeedback.value = "";
+    return;
+  }
+
+  const doc = createPdfDocument(`Reporte de picking - Pedido ${selectedOrderReport.value.numeroPedido}`);
+  let currentY = 40;
+
+  currentY = addPdfSectionTitle(doc, "Detalle del pedido", currentY);
+  currentY = addPdfTextRow(doc, "Pedido", selectedOrderReport.value.numeroPedido, currentY);
+  currentY = addPdfTextRow(doc, "Responsable del picking", selectedOrderReport.value.responsableId, currentY);
+  currentY = addPdfTextRow(doc, "Cajas registradas", formatInteger(selectedOrderReport.value.numeroCajas), currentY);
+  currentY = addPdfTextRow(doc, "Fecha de registro", formatDate(selectedOrderReport.value.fechaHoraRegistro), currentY);
+  currentY = addPdfTextRow(doc, "Errores reportados", formatInteger(selectedOrderReport.value.totalErrores), currentY);
+
+  currentY += 4;
+  currentY = addPdfSectionTitle(doc, "Observacion", currentY);
+  const observationLines = doc.splitTextToSize(
+    `Este reporte identifica quien realizo el picking del pedido ${selectedOrderReport.value.numeroPedido} y cuantos errores acumula hasta el momento.`,
+    180,
+  );
+  doc.text(observationLines, 14, currentY);
+
+  doc.save(`picking_pedido_${selectedOrderReport.value.numeroPedido}.pdf`);
 }
 
 async function loadWarehouseAnalytics() {
@@ -281,6 +412,9 @@ onMounted(() => {
           <button class="primary-button" type="button" :disabled="loading" @click="loadWarehouseAnalytics">
             {{ loading ? "Actualizando..." : "Cargar resumen" }}
           </button>
+          <button class="secondary-button" type="button" :disabled="loading || (!ranking.length && !reports.length)" @click="downloadSummaryPdf">
+            Descargar resumen PDF
+          </button>
           <RouterLink class="secondary-link" to="/driver-analytics">
             Analisis choferes
           </RouterLink>
@@ -385,6 +519,9 @@ onMounted(() => {
             <div class="lookup-actions">
               <button class="primary-button" type="submit" :disabled="errorReportSubmitting">
                 {{ errorReportSubmitting ? "Guardando..." : "Reportar error" }}
+              </button>
+              <button class="secondary-button" type="button" @click="downloadOrderPdf">
+                Descargar pedido PDF
               </button>
             </div>
           </form>
@@ -675,7 +812,8 @@ textarea {
 }
 
 .primary-button,
-.secondary-link {
+.secondary-link,
+.secondary-button {
   min-height: 46px;
   border-radius: 16px;
   display: inline-flex;
@@ -692,10 +830,15 @@ textarea {
   cursor: pointer;
 }
 
-.secondary-link {
+.secondary-link,
+.secondary-button {
   background: rgba(255, 255, 255, 0.08);
   color: #fff7ed;
   border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.secondary-button {
+  cursor: pointer;
 }
 
 .panel,

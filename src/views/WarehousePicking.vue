@@ -9,6 +9,7 @@ const numeroCajas = ref("");
 
 const isSaving = ref(false);
 const serverResponse = ref(null);
+const lastReceipt = ref(null);
 
 const fieldErrors = ref({
   responsableId: "",
@@ -72,21 +73,33 @@ async function registrarPicking() {
 
   isSaving.value = true;
   serverResponse.value = null;
+  lastReceipt.value = null;
 
   try {
+    const payload = {
+      responsableId: responsableId.value.trim(),
+      numeroPedido: numeroPedido.value.trim(),
+      numeroCajas: Number(numeroCajas.value),
+    };
+
     const response = await fetch(`${API_BASE_URL}/picking-reports`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        responsableId: responsableId.value.trim(),
-        numeroPedido: numeroPedido.value.trim(),
-        numeroCajas: Number(numeroCajas.value),
-      }),
+      body: JSON.stringify(payload),
     });
 
     const result = await response.json().catch(() => null);
 
     if (response.ok) {
+      lastReceipt.value = {
+        responsableId: payload.responsableId,
+        numeroPedido: payload.numeroPedido,
+        numeroCajas: payload.numeroCajas,
+        time: new Date().toLocaleTimeString("es-ES", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      };
       serverResponse.value = {
         type: "success",
         title: "Picking registrado",
@@ -130,6 +143,24 @@ async function registrarPicking() {
       </div>
 
       <div class="form-card">
+        <div class="submission-strip" aria-live="polite">
+          <div v-if="isSaving" class="submission-strip-card submission-strip-pending">
+            <span class="submission-orbit" aria-hidden="true"></span>
+            <div>
+              <strong>Registrando picking...</strong>
+              <p>Estamos guardando tu reporte en el servidor.</p>
+            </div>
+          </div>
+
+          <div v-else-if="lastReceipt" class="submission-strip-card submission-strip-success">
+            <span class="submission-check" aria-hidden="true">✓</span>
+            <div>
+              <strong>Reporte confirmado</strong>
+              <p>Pedido {{ lastReceipt.numeroPedido }} · {{ lastReceipt.numeroCajas }} cajas · {{ lastReceipt.time }}</p>
+            </div>
+          </div>
+        </div>
+
         <div class="form-grid">
           <div class="form-group">
             <label for="responsableId">ID del almacenista</label>
@@ -195,6 +226,32 @@ async function registrarPicking() {
           <li v-for="detail in serverResponse.details" :key="detail">{{ detail }}</li>
         </ul>
       </div>
+
+      <div class="mobile-status-stack" aria-live="polite">
+        <div v-if="isSaving" class="mobile-status-card mobile-status-card-sending">
+          <span class="mobile-status-icon mobile-status-icon-spinner" aria-hidden="true"></span>
+          <div>
+            <strong>Registrando picking...</strong>
+            <p>No cierres la pantalla hasta ver la confirmacion.</p>
+          </div>
+        </div>
+
+        <div v-else-if="lastReceipt" class="mobile-status-card mobile-status-card-success">
+          <span class="mobile-status-icon mobile-status-icon-success" aria-hidden="true">✓</span>
+          <div>
+            <strong>Picking guardado</strong>
+            <p>Pedido {{ lastReceipt.numeroPedido }} · {{ lastReceipt.numeroCajas }} cajas · {{ lastReceipt.time }}</p>
+          </div>
+        </div>
+
+        <div v-else-if="serverResponse?.type === 'error'" class="mobile-status-card mobile-status-card-error">
+          <span class="mobile-status-icon mobile-status-icon-error" aria-hidden="true">!</span>
+          <div>
+            <strong>{{ serverResponse.title }}</strong>
+            <p>{{ serverResponse.message }}</p>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 </template>
@@ -249,6 +306,65 @@ async function registrarPicking() {
 
 .form-card {
   padding: 1.5rem;
+}
+
+.submission-strip {
+  margin-bottom: 1rem;
+}
+
+.submission-strip-card {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(159, 209, 255, 0.18);
+  animation: slideUpFade 0.24s ease;
+}
+
+.submission-strip-card strong {
+  display: block;
+  color: #f3f6fb;
+}
+
+.submission-strip-card p {
+  margin: 0.2rem 0 0;
+  color: rgba(243, 246, 251, 0.72);
+}
+
+.submission-strip-pending {
+  background: rgba(14, 37, 66, 0.7);
+  border-color: rgba(69, 167, 255, 0.28);
+}
+
+.submission-strip-success {
+  background: rgba(19, 47, 33, 0.72);
+  border-color: rgba(42, 181, 125, 0.28);
+}
+
+.submission-orbit,
+.submission-check {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.submission-orbit {
+  border: 3px solid rgba(159, 209, 255, 0.18);
+  border-top-color: #45a7ff;
+  animation: spin 0.9s linear infinite;
+}
+
+.submission-check {
+  background: rgba(42, 181, 125, 0.18);
+  color: #8df0b4;
+  font-size: 1.25rem;
+  font-weight: 800;
+  box-shadow: 0 0 0 10px rgba(42, 181, 125, 0.08);
 }
 
 .form-grid {
@@ -367,9 +483,23 @@ button:disabled {
   background: rgba(86, 26, 26, 0.45);
 }
 
+.mobile-status-stack {
+  display: none;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes slideUpFade {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @media (max-width: 600px) {
   .picking-page {
-    padding: 1rem 0.75rem 2rem;
+    padding: 1rem 0.75rem 6.5rem;
   }
 
   .form-grid {
@@ -386,6 +516,90 @@ button:disabled {
 
   button {
     width: 100%;
+  }
+
+  .submission-strip,
+  .response-card {
+    display: none;
+  }
+
+  .mobile-status-stack {
+    display: block;
+    position: fixed;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    z-index: 300;
+    pointer-events: none;
+  }
+
+  .mobile-status-card {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.95rem 1rem;
+    border-radius: 20px;
+    border: 1px solid rgba(159, 209, 255, 0.16);
+    background: rgba(7, 19, 34, 0.95);
+    box-shadow: 0 18px 32px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    animation: slideUpFade 0.24s ease;
+  }
+
+  .mobile-status-card strong {
+    display: block;
+    color: #f3f6fb;
+  }
+
+  .mobile-status-card p {
+    margin: 0.2rem 0 0;
+    color: rgba(243, 246, 251, 0.78);
+    font-size: 0.92rem;
+  }
+
+  .mobile-status-card-sending {
+    border-color: rgba(69, 167, 255, 0.28);
+  }
+
+  .mobile-status-card-success {
+    border-color: rgba(42, 181, 125, 0.28);
+    background: rgba(19, 47, 33, 0.95);
+  }
+
+  .mobile-status-card-error {
+    border-color: rgba(248, 113, 113, 0.28);
+    background: rgba(68, 22, 22, 0.95);
+  }
+
+  .mobile-status-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .mobile-status-icon-spinner {
+    border: 3px solid rgba(69, 167, 255, 0.16);
+    border-top-color: #45a7ff;
+    animation: spin 0.9s linear infinite;
+  }
+
+  .mobile-status-icon-success {
+    background: rgba(42, 181, 125, 0.18);
+    color: #8df0b4;
+    font-size: 1.1rem;
+    font-weight: 800;
+  }
+
+  .mobile-status-icon-error {
+    background: rgba(248, 113, 113, 0.18);
+    color: #ffb4b4;
+    font-size: 1rem;
+    font-weight: 800;
   }
 }
 </style>
