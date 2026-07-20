@@ -7,7 +7,6 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:800
 
 const driverId = ref("");
 const driverName = ref("");
-const routeLabel = ref("");
 const routeWeight = ref(0);
 const paradaInput = ref("");
 const latInput = ref("");
@@ -80,6 +79,13 @@ const driverRouteLink = computed(() => {
   }
 
   return `${window.location.origin}/driver-route?driverId=${encodeURIComponent(normalizedDriverId)}`;
+});
+
+const currentRouteReference = computed(() => {
+  const routeId = String(serverResponse.value?.savedRoute?.routeId || "").trim();
+  const routeLabel = String(serverResponse.value?.savedRoute?.routeLabel || "").trim();
+
+  return routeLabel || (routeId ? `RUTA-${routeId}` : "Sin folio");
 });
 
 const routeOptions = computed(() => {
@@ -199,15 +205,16 @@ function printRoutePDF() {
   doc.text(`Tipo: ${activeRouteOption.value?.label || "Ruta generada"}`, 10, 26);
   doc.text(`Peso total: ${totalWeight.value}`, 10, 34);
   doc.text(`Clientes unicos: ${uniqueClientCount.value}`, 10, 42);
-  doc.text("Orden", 10, 46);
-  doc.text("Parada", 30, 46);
-  doc.text("Ruta", 120, 46);
+  doc.text(`Folio: ${currentRouteReference.value}`, 10, 50);
+  doc.text("Orden", 10, 56);
+  doc.text("Parada", 30, 56);
+  doc.text("Ruta", 120, 56);
 
   routeTable.value.forEach((row, idx) => {
-    const y = 56 + idx * 10;
+    const y = 66 + idx * 10;
     doc.text(String(row.orden), 10, y);
     doc.text(row.nombre, 30, y);
-    doc.text(routeLabel.value || "Asignada", 120, y);
+    doc.text(currentRouteReference.value, 120, y);
   });
 
   doc.save("paradas_chofer.pdf");
@@ -336,7 +343,6 @@ async function makeRoute() {
       body: JSON.stringify({
         driverId: driverId.value.trim(),
         driverName: driverName.value.trim(),
-        routeLabel: routeLabel.value.trim(),
         routeType: selectedRouteType.value,
         routeWeight: Number(routeWeight.value) || 0,
         anchorClientId: anchorClientId.value.trim() || undefined,
@@ -392,8 +398,10 @@ async function makeRoute() {
             <input id="driverName" v-model="driverName" type="text" placeholder="Opcional" />
           </div>
           <div class="field-group field-group-wide">
-            <label for="routeLabel">Nombre de la ruta</label>
-            <input id="routeLabel" v-model="routeLabel" type="text" placeholder="Opcional. Si no, se genera automaticamente." />
+            <label>Folio de la ruta</label>
+            <div class="generated-route-reference">
+              {{ currentRouteReference }}
+            </div>
           </div>
           <div class="field-group">
             <label for="routeType">Tipo de ruta a guardar</label>
@@ -527,6 +535,7 @@ async function makeRoute() {
       <div v-if="serverResponse" class="routes-results">
         <div class="routes-card summary-card">
           <div class="summary-strip summary-strip-results">
+            <span><strong>Folio:</strong> {{ currentRouteReference }}</span>
             <span><strong>Clientes unicos:</strong> {{ serverResponse.uniqueClientCount }}</span>
             <span><strong>Peso total:</strong> {{ serverResponse.totalWeight }}</span>
             <span><strong>Chofer:</strong> {{ serverResponse.savedRoute?.driverId || 'Sin asignar' }}</span>
@@ -831,6 +840,19 @@ async function makeRoute() {
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.96);
   color: #1f2937;
+}
+
+.generated-route-reference {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0.8rem 0.95rem;
+  border-radius: 16px;
+  border: 1px dashed rgba(159, 209, 255, 0.28);
+  background: rgba(159, 209, 255, 0.08);
+  color: #f3f6fb;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .route-input {
