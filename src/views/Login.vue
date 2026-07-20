@@ -123,6 +123,11 @@ onMounted(() => {
   const reasonFromQuery = typeof route.query.reason === "string" ? route.query.reason : "";
   const reason = reasonFromQuery || consumeRedirectReason();
 
+  if (reason === "signed-out") {
+    infoMessage.value = "La sesion se cerro correctamente.";
+    return;
+  }
+
   if (reason === "session-expired") {
     infoMessage.value = "Tu sesion expiro despues de 24 horas. Debes autenticarte otra vez.";
     return;

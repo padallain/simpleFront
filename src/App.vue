@@ -1,6 +1,7 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { AUTH_ROUTE_PATHS, logoutSession } from './services/auth'
 
 const router = useRouter()
 const route = useRoute()
@@ -21,10 +22,9 @@ const PAGE_TITLES = {
   '/route-management': 'Gestión de Rutas',
 }
 
-const AUTH_ROUTES = new Set(['/login', '/signup', '/recover-password'])
-
 const currentPageTitle = computed(() => PAGE_TITLES[route.path] ?? '')
-const showTopNav = computed(() => !AUTH_ROUTES.has(route.path))
+const showTopNav = computed(() => !AUTH_ROUTE_PATHS.has(route.path))
+const isLoggingOut = ref(false)
 
 function goToHome()                    { router.push('/') }
 function goToRoutes()                  { router.push('/routes') }
@@ -36,6 +36,21 @@ function goToDriverAnalytics()         { router.push('/driver-analytics') }
 function goToWarehousePickerAnalytics(){ router.push('/warehouse-picker-analytics') }
 function goToDispatchControl()         { router.push('/dispatch-control') }
 function goToVehicleMaintenance()      { router.push('/vehicle-maintenance-history') }
+
+async function handleLogout() {
+  if (isLoggingOut.value) {
+    return
+  }
+
+  isLoggingOut.value = true
+
+  try {
+    await logoutSession()
+  } finally {
+    isLoggingOut.value = false
+    router.replace({ path: '/login', query: { reason: 'signed-out' } })
+  }
+}
 </script>
 
 <template>
@@ -69,6 +84,12 @@ function goToVehicleMaintenance()      { router.push('/vehicle-maintenance-histo
           Inicio
         </button>
         <span v-if="currentPageTitle" class="nav-page-title">{{ currentPageTitle }}</span>
+      </div>
+
+      <div class="nav-actions">
+        <button class="nav-logout" type="button" :disabled="isLoggingOut" @click="handleLogout">
+          {{ isLoggingOut ? 'Saliendo...' : 'Cerrar sesion' }}
+        </button>
       </div>
     </nav>
 
@@ -217,6 +238,38 @@ function goToVehicleMaintenance()      { router.push('/vehicle-maintenance-histo
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+.nav-logout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.38rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  background: rgba(127, 29, 29, 0.22);
+  color: #fecaca;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.nav-logout:hover:enabled {
+  background: rgba(185, 28, 28, 0.32);
+  border-color: rgba(252, 165, 165, 0.44);
+  color: #fee2e2;
+}
+
+.nav-logout:disabled {
+  opacity: 0.7;
+  cursor: wait;
 }
 
 /* ── Responsive ───────────────────────────────────── */

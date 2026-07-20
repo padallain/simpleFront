@@ -1,69 +1,9 @@
-const DEFAULT_LOCAL_API_BASE_URL = "http://localhost:8000";
-const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || DEFAULT_LOCAL_API_BASE_URL).replace(/\/$/, "");
-const fallbackApiBaseUrl = DEFAULT_LOCAL_API_BASE_URL;
+import { API_BASE_URL, parseApiResponse, requestApiWithFallback } from "./auth";
 
-async function requestWithFallback(path, options = {}) {
-  const primaryUrl = `${configuredApiBaseUrl}${path}`;
-
-  console.log("[dailyCheckApi] request:start", {
-    primaryUrl,
-    method: options.method || "GET",
-  });
-
-  try {
-    const response = await fetch(primaryUrl, options);
-
-    console.log("[dailyCheckApi] request:primary-response", {
-      primaryUrl,
-      status: response.status,
-      ok: response.ok,
-      data: response.data
-    });
-
-    if (response.status !== 404 || configuredApiBaseUrl === fallbackApiBaseUrl) {
-      return response;
-    }
-
-    console.warn("[dailyCheckApi] Primary API returned 404, retrying against local backend", {
-      primaryUrl,
-      fallbackUrl: `${fallbackApiBaseUrl}${path}`,
-    });
-  } catch (error) {
-    if (configuredApiBaseUrl === fallbackApiBaseUrl) {
-      throw error;
-    }
-
-    console.warn("[dailyCheckApi] Primary API request failed, retrying against local backend", {
-      primaryUrl,
-      fallbackUrl: `${fallbackApiBaseUrl}${path}`,
-      error: error.message,
-    });
-  }
-
-  const fallbackUrl = `${fallbackApiBaseUrl}${path}`;
-  const fallbackResponse = await fetch(fallbackUrl, options);
-
-  console.log("[dailyCheckApi] request:fallback-response", {
-    fallbackUrl,
-    status: fallbackResponse.status,
-    ok: fallbackResponse.ok,
-  });
-
-  return fallbackResponse;
-}
-
-async function parseResponse(response, defaultMessage) {
-  const result = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    throw new Error(result?.message || defaultMessage);
-  }
-
-  return result;
-}
+const fallbackApiBaseUrl = API_BASE_URL;
 
 export async function createDailyCheck(payload) {
-  const response = await requestWithFallback(`/dailyCheck`, {
+  const response = await requestApiWithFallback(`/dailyCheck`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -71,21 +11,21 @@ export async function createDailyCheck(payload) {
     body: JSON.stringify(payload),
   });
 
-  return parseResponse(response, "No se pudo guardar el reporte diario");
+  return parseApiResponse(response, "No se pudo guardar el reporte diario");
 }
 
 export async function fetchRecentDailyChecks(limit = 20) {
-  const response = await requestWithFallback(`/dailyCheck?limit=${limit}`);
-  return parseResponse(response, "No se pudieron cargar los reportes recientes");
+  const response = await requestApiWithFallback(`/dailyCheck?limit=${limit}`);
+  return parseApiResponse(response, "No se pudieron cargar los reportes recientes");
 }
 
 export async function fetchDailyChecksByPlaca(placa) {
-  const response = await requestWithFallback(`/dailyCheck/placa/${encodeURIComponent(placa)}`);
-  return parseResponse(response, "No se pudieron cargar los reportes por placa");
+  const response = await requestApiWithFallback(`/dailyCheck/placa/${encodeURIComponent(placa)}`);
+  return parseApiResponse(response, "No se pudieron cargar los reportes por placa");
 }
 
 export async function updateDailyCheckById(id, payload, adminKey) {
-  const response = await requestWithFallback(`/internal/admin/dailyCheck/${encodeURIComponent(id)}`, {
+  const response = await requestApiWithFallback(`/internal/admin/dailyCheck/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -94,18 +34,18 @@ export async function updateDailyCheckById(id, payload, adminKey) {
     body: JSON.stringify(payload),
   });
 
-  return parseResponse(response, "No se pudo actualizar el reporte diario");
+  return parseApiResponse(response, "No se pudo actualizar el reporte diario");
 }
 
 export async function deleteDailyCheckById(id, adminKey) {
-  const response = await requestWithFallback(`/internal/admin/dailyCheck/${encodeURIComponent(id)}`, {
+  const response = await requestApiWithFallback(`/internal/admin/dailyCheck/${encodeURIComponent(id)}`, {
     method: "DELETE",
     headers: {
       "x-admin-delete-key": adminKey,
     },
   });
 
-  return parseResponse(response, "No se pudo eliminar el reporte diario");
+  return parseApiResponse(response, "No se pudo eliminar el reporte diario");
 }
 
-export { configuredApiBaseUrl as API_BASE_URL, fallbackApiBaseUrl as DAILY_CHECK_LOCAL_API_BASE_URL };
+export { fallbackApiBaseUrl as DAILY_CHECK_LOCAL_API_BASE_URL };

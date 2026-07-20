@@ -44,6 +44,25 @@ function isApiRequest(input) {
   return requestUrl.startsWith(API_BASE_URL);
 }
 
+function getHeaderValue(headers, key) {
+  if (!headers) {
+    return null;
+  }
+
+  if (headers instanceof Headers) {
+    return headers.get(key);
+  }
+
+  const normalizedKey = key.toLowerCase();
+
+  if (Array.isArray(headers)) {
+    const foundEntry = headers.find(([entryKey]) => String(entryKey).toLowerCase() === normalizedKey);
+    return foundEntry ? foundEntry[1] : null;
+  }
+
+  return headers[key] || headers[normalizedKey] || null;
+}
+
 function withApiDefaults(options = {}) {
   return {
     ...options,
@@ -103,6 +122,60 @@ async function parseJson(response) {
   return response.json().catch(() => null);
 }
 
+function handleUnauthorizedResponse(requestUrl, requestOptions, response) {
+  if (response.status !== 401) {
+    return;
+  }
+
+  if (getHeaderValue(requestOptions.headers, "x-skip-auth-redirect")) {
+    return;
+  }
+
+  if (requestUrl.startsWith("http://") || requestUrl.startsWith("https://")) {
+    redirectToLogin("session-expired");
+  }
+}
+
+async function fetchWithSession(url, options = {}) {
+  const requestOptions = withApiDefaults(options);
+  const response = await fetch(url, requestOptions);
+
+  handleUnauthorizedResponse(url, requestOptions, response);
+  return response;
+}
+
+export async function requestApiWithFallback(path, options = {}, {
+  apiBaseUrl = API_BASE_URL,
+  fallbackBaseUrl = DEFAULT_LOCAL_API_BASE_URL,
+  retryOnStatus = 404,
+} = {}) {
+  const primaryUrl = `${apiBaseUrl}${path}`;
+
+  try {
+    const response = await fetchWithSession(primaryUrl, options);
+
+    if (response.status !== retryOnStatus || apiBaseUrl === fallbackBaseUrl) {
+      return response;
+    }
+  } catch (error) {
+    if (apiBaseUrl === fallbackBaseUrl) {
+      throw error;
+    }
+  }
+
+  return fetchWithSession(`${fallbackBaseUrl}${path}`, options);
+}
+
+export async function parseApiResponse(response, defaultMessage) {
+  const result = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(result?.message || defaultMessage);
+  }
+
+  return result;
+}
+
 export async function fetchSession({ force = false } = {}) {
   if (!force && authState.checked) {
     return getAuthState();
@@ -159,12 +232,12 @@ export async function loginWithSession({ email, password }) {
 }
 
 export async function logoutSession() {
-  const response = await fetch(`${API_BASE_URL}/logout`, withApiDefaults({
+  const response = await fetchWithSession(`${API_BASE_URL}/logout`, {
     method: "POST",
     headers: {
       "x-skip-auth-redirect": "true",
     },
-  }));
+  });
 
   clearAuthState();
   return response;
@@ -182,12 +255,9 @@ export function installApiAuthInterceptor() {
     const requestOptions = isTrackedApiRequest ? withApiDefaults(init) : init;
     const response = await originalFetch(input, requestOptions);
 
-    if (
-      isTrackedApiRequest
-      && response.status === 401
-      && !requestOptions.headers?.["x-skip-auth-redirect"]
-    ) {
-      redirectToLogin("session-expired");
+    if (isTrackedApiRequest) {
+      const requestUrl = typeof input === "string" ? input : input.url;
+      handleUnauthorizedResponse(requestUrl, requestOptions, response);
     }
 
     return response;
