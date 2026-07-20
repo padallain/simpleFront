@@ -48,4 +48,5 @@ export async function deleteDailyCheckById(id, adminKey) {
   return parseApiResponse(response, "No se pudo eliminar el reporte diario");
 }
 
+export { API_BASE_URL };
 export { fallbackApiBaseUrl as DAILY_CHECK_LOCAL_API_BASE_URL };
