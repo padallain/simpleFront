@@ -1,9 +1,10 @@
 <script setup>
-import { ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { fetchSession, getAuthState } from "../services/auth";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 
-const responsableId = ref("");
+const sessionUser = ref(getAuthState().user || null);
 const numeroPedido = ref("");
 const numeroCajas = ref("");
 
@@ -11,14 +12,18 @@ const isSaving = ref(false);
 const serverResponse = ref(null);
 const lastReceipt = ref(null);
 
+const responsableId = computed(() => {
+  const user = sessionUser.value || {};
+  return String(user.username || user.email || user.id || "").trim().toUpperCase();
+});
+
 const fieldErrors = ref({
-  responsableId: "",
   numeroPedido: "",
   numeroCajas: "",
 });
 
 function resetFieldErrors() {
-  fieldErrors.value = { responsableId: "", numeroPedido: "", numeroCajas: "" };
+  fieldErrors.value = { numeroPedido: "", numeroCajas: "" };
 }
 
 function clearFieldError(field) {
@@ -30,9 +35,8 @@ function validateForm() {
   resetFieldErrors();
 
   if (!responsableId.value.trim()) {
-    const msg = "Falta el ID del almacenista.";
+    const msg = "No se encontro la sesion del almacenista. Inicia sesion de nuevo.";
     errors.push(msg);
-    fieldErrors.value.responsableId = msg;
   }
 
   if (!numeroPedido.value.trim()) {
@@ -52,10 +56,18 @@ function validateForm() {
 }
 
 function resetForm() {
-  responsableId.value = "";
   numeroPedido.value = "";
   numeroCajas.value = "";
   resetFieldErrors();
+}
+
+async function loadSessionUser() {
+  try {
+    const sessionState = await fetchSession();
+    sessionUser.value = sessionState.user || null;
+  } catch {
+    sessionUser.value = null;
+  }
 }
 
 async function registrarPicking() {
@@ -77,7 +89,6 @@ async function registrarPicking() {
 
   try {
     const payload = {
-      responsableId: responsableId.value.trim(),
       numeroPedido: numeroPedido.value.trim(),
       numeroCajas: Number(numeroCajas.value),
     };
@@ -92,7 +103,7 @@ async function registrarPicking() {
 
     if (response.ok) {
       lastReceipt.value = {
-        responsableId: payload.responsableId,
+        responsableId: String(result?.pickingReport?.responsableId || responsableId.value).trim(),
         numeroPedido: payload.numeroPedido,
         numeroCajas: payload.numeroCajas,
         time: new Date().toLocaleTimeString("es-ES", {
@@ -129,6 +140,10 @@ async function registrarPicking() {
     isSaving.value = false;
   }
 }
+
+onMounted(() => {
+  loadSessionUser();
+});
 </script>
 
 <template>
@@ -138,7 +153,7 @@ async function registrarPicking() {
         <p class="page-kicker">Almacen</p>
         <h1 class="page-title">Registro de Picking</h1>
         <p class="page-subtitle">
-          Registra el pedido que terminaste de picar: tu ID, el numero de pedido y la cantidad de cajas.
+          Registra el pedido que terminaste de picar. El almacenista se toma directamente de la sesion iniciada.
         </p>
       </div>
 
@@ -162,18 +177,11 @@ async function registrarPicking() {
         </div>
 
         <div class="form-grid">
-          <div class="form-group">
-            <label for="responsableId">ID del almacenista</label>
-            <input
-              id="responsableId"
-              type="text"
-              v-model="responsableId"
-              :class="{ 'input-error': fieldErrors.responsableId }"
-              placeholder="Ej. ALM001"
-              autocomplete="off"
-              @input="clearFieldError('responsableId')"
-            />
-            <p v-if="fieldErrors.responsableId" class="field-error">{{ fieldErrors.responsableId }}</p>
+          <div class="form-group form-group-full">
+            <label>Almacenista en sesion</label>
+            <div class="session-pill" :class="{ 'session-pill-error': !responsableId }">
+              {{ responsableId || 'Sesion no disponible' }}
+            </div>
           </div>
 
           <div class="form-group">
@@ -264,6 +272,23 @@ async function registrarPicking() {
     radial-gradient(circle at top left, rgba(87, 140, 255, 0.18), transparent 34%),
     radial-gradient(circle at top right, rgba(124, 58, 237, 0.16), transparent 28%),
     linear-gradient(180deg, #0b1321 0%, #10213c 52%, #0b1321 100%);
+}
+
+.session-pill {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0.8rem 0.95rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(15, 23, 42, 0.55);
+  color: #fff7ed;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.session-pill-error {
+  border-color: rgba(248, 113, 113, 0.55);
 }
 
 .picking-container {

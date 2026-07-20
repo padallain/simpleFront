@@ -40,8 +40,10 @@
 
           <div class="details-grid">
             <div class="field-group">
-              <label for="chofer" class="form-label">Nombre del chofer</label>
-              <input id="chofer" type="text" v-model="chofer" required />
+              <label class="form-label">Chofer en sesion</label>
+              <div class="session-pill" :class="{ 'session-pill-error': !chofer }">
+                {{ chofer || 'Sesion no disponible' }}
+              </div>
             </div>
             <div class="field-group">
               <label for="placa" class="form-label">Placa del vehículo</label>
@@ -187,13 +189,14 @@
 </template>
 
 <script setup>
-import { ref, computed } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { RouterLink } from "vue-router";
+import { fetchSession, getAuthState } from "../services/auth";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 const DAILY_CHECK_API_URL = `${API_BASE_URL}/dailyCheck`;
 
-const chofer = ref("");
+const sessionUser = ref(getAuthState().user || null);
 const placa = ref("");
 const modelo = ref("");
 const anio = ref("");
@@ -217,6 +220,11 @@ const errorMensaje = ref("");
 const enviando = ref(false);
 const ultimoEnvio = ref(null);
 
+const chofer = computed(() => {
+  const user = sessionUser.value || {};
+  return String(user.username || user.email || user.id || "").trim();
+});
+
 const totalChecks = computed(() => checklist.value.length);
 const okCount = computed(() => checklist.value.filter((item) => item.estado === "OK").length);
 const noOkCount = computed(() => checklist.value.filter((item) => item.estado === "NO_OK").length);
@@ -230,7 +238,6 @@ function setEstado(idx, estado) {
 }
 
 function resetFormulario() {
-  chofer.value = "";
   placa.value = "";
   modelo.value = "";
   anio.value = "";
@@ -242,6 +249,15 @@ function resetFormulario() {
   }));
 }
 
+async function loadSessionUser() {
+  try {
+    const sessionState = await fetchSession();
+    sessionUser.value = sessionState.user || null;
+  } catch {
+    sessionUser.value = null;
+  }
+}
+
 async function enviarNovedades() {
   enviando.value = true;
   errorMensaje.value = "";
@@ -250,7 +266,6 @@ async function enviarNovedades() {
 
   try {
     const payload = {
-      chofer: chofer.value.trim(),
       placa: placa.value.trim(),
       modelo: modelo.value.trim(),
       anio: Number(anio.value),
@@ -278,7 +293,7 @@ async function enviarNovedades() {
 
     enviado.value = true;
     ultimoEnvio.value = {
-      chofer: payload.chofer,
+      chofer: String(result?.dailyCheck?.chofer || chofer.value).trim(),
       placa: payload.placa,
       fecha: new Date().toLocaleTimeString("es-ES", {
         hour: "2-digit",
@@ -306,6 +321,10 @@ const todosCompletos = computed(
       (item) => item.estado && (item.estado !== "NO_OK" || item.comentario.trim()),
     ),
 );
+
+onMounted(() => {
+  loadSessionUser();
+});
 </script>
 
 <style scoped>
@@ -443,6 +462,23 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+.session-pill {
+  min-height: 52px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f4f7fb;
+  font-weight: 600;
+}
+
+.session-pill-error {
+  border-color: rgba(248, 113, 113, 0.55);
 }
 
 .field-group-full {

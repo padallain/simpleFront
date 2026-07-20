@@ -2,10 +2,12 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import RouteOsmMap from "../components/RouteOsmMap.vue";
+import { fetchSession, getAuthState } from "../services/auth";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 const router = useRouter();
 const route = useRoute();
+const sessionUser = ref(getAuthState().user || null);
 
 const driverId = ref("");
 const routeData = ref(null);
@@ -82,6 +84,11 @@ function cloneStops(stops) {
   return Array.isArray(stops)
     ? stops.map((stop) => ({ ...stop }))
     : [];
+}
+
+function resolveSessionDriverId() {
+  const user = sessionUser.value || {};
+  return String(user.username || user.email || user.id || "").trim();
 }
 
 const dispatchedCount = computed(() =>
@@ -544,16 +551,26 @@ async function submitDispatchIssue(stop) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  try {
+    const sessionState = await fetchSession();
+    sessionUser.value = sessionState.user || null;
+  } catch {
+    sessionUser.value = null;
+  }
+
   const prefilledDriverId = typeof route.query.driverId === "string"
     ? route.query.driverId.trim()
     : "";
 
-  if (!prefilledDriverId) {
+  const sessionDriverId = resolveSessionDriverId();
+  const nextDriverId = prefilledDriverId || sessionDriverId;
+
+  if (!nextDriverId) {
     return;
   }
 
-  driverId.value = prefilledDriverId;
+  driverId.value = nextDriverId;
   loadDriverRoute();
 });
 </script>
@@ -564,7 +581,7 @@ onMounted(() => {
       <div class="driver-hero">
         <p class="driver-kicker">Ruta del chofer</p>
         <h1>Consulta tu ruta asignada</h1>
-        <p class="driver-copy">Ingresa tu ID para ver la ruta actual, los clientes despachados y los clientes que faltan por registrar.</p>
+        <p class="driver-copy">Tu ID se toma de la sesion cuando esta disponible. Tambien puedes consultarlo manualmente para ver la ruta actual y los clientes pendientes.</p>
       </div>
 
       <div class="driver-card">
