@@ -4,6 +4,7 @@ export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || DEFAULT_LOCAL_
 export const AUTH_ROUTE_PATHS = new Set(["/login", "/signup", "/recover-password"]);
 
 const SESSION_REDIRECT_REASON_KEY = "makeroute.sessionRedirectReason";
+const AUTH_TOKEN_STORAGE_KEY = "makeroute.authToken";
 
 const authState = {
   checked: false,
@@ -64,10 +65,39 @@ function getHeaderValue(headers, key) {
 }
 
 function withApiDefaults(options = {}) {
+  const headers = new Headers(options.headers || {});
+  const authToken = getStoredAuthToken();
+
+  if (authToken && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${authToken}`);
+  }
+
   return {
     ...options,
+    headers,
     credentials: options.credentials || "include",
   };
+}
+
+function getStoredAuthToken() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || "";
+}
+
+function setStoredAuthToken(token) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!token) {
+    localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+    return;
+  }
+
+  localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
 }
 
 function canUseLocalFallback(fallbackBaseUrl) {
@@ -105,6 +135,7 @@ export function clearAuthState() {
   authState.authenticated = false;
   authState.user = null;
   sessionRequest = null;
+  setStoredAuthToken("");
 }
 
 export function setAuthenticatedUser(user) {
@@ -247,6 +278,7 @@ export async function loginWithSession({ email, password }) {
     throw new Error(result?.message || "No se pudo iniciar sesion");
   }
 
+  setStoredAuthToken(result?.token || "");
   setAuthenticatedUser(result?.user || null);
 
   const sessionState = await fetchSession({ force: true });
