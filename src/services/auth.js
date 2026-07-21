@@ -145,7 +145,8 @@ function handleUnauthorizedResponse(requestUrl, requestOptions, response) {
   }
 
   if (requestUrl.startsWith("http://") || requestUrl.startsWith("https://")) {
-    redirectToLogin("session-expired");
+    const redirectReason = authState.authenticated ? "session-expired" : "auth-required";
+    redirectToLogin(redirectReason);
   }
 }
 
@@ -247,6 +248,14 @@ export async function loginWithSession({ email, password }) {
   }
 
   setAuthenticatedUser(result?.user || null);
+
+  const sessionState = await fetchSession({ force: true });
+
+  if (!sessionState.authenticated) {
+    clearAuthState();
+    throw new Error("La sesion no pudo mantenerse despues del inicio. Revisa cookies del navegador o la configuracion del servidor.");
+  }
+
   storeRedirectReason("");
   return result;
 }
