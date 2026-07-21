@@ -21,7 +21,7 @@ import WarehousePicking from "../views/WarehousePicking.vue";
 import ClientesCadena from "../views/ClientesCadena.vue";
 import VehicleMaintenanceHistory from "../views/VehicleMaintenanceHistory.vue";
 import DispatchControl from "../views/DispatchControl.vue";
-import { AUTH_ROUTE_PATHS, fetchSession } from "../services/auth";
+import { AUTH_ROUTE_PATHS, fetchSession, getAuthState } from "../services/auth";
 
 
 const routes = [
@@ -58,7 +58,8 @@ const router = createRouter({
 router.beforeEach(async (to, from, next) => {
   const targetPath = to.path;
   const isAuthRoute = AUTH_ROUTE_PATHS.has(targetPath);
-  const sessionState = await fetchSession({ force: !isAuthRoute });
+  const currentAuthState = getAuthState();
+  const sessionState = await fetchSession({ force: !currentAuthState.checked });
 
   console.log("[router] navigating", {
     from: from.fullPath,

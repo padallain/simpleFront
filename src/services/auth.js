@@ -70,6 +70,19 @@ function withApiDefaults(options = {}) {
   };
 }
 
+function canUseLocalFallback(fallbackBaseUrl) {
+  if (!fallbackBaseUrl || fallbackBaseUrl === API_BASE_URL) {
+    return false;
+  }
+
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const hostname = String(window.location.hostname || "").toLowerCase();
+  return hostname === "localhost" || hostname === "127.0.0.1";
+}
+
 function storeRedirectReason(reason) {
   if (!reason) {
     sessionStorage.removeItem(SESSION_REDIRECT_REASON_KEY);
@@ -150,15 +163,16 @@ export async function requestApiWithFallback(path, options = {}, {
   retryOnStatus = 404,
 } = {}) {
   const primaryUrl = `${apiBaseUrl}${path}`;
+  const shouldTryFallback = canUseLocalFallback(fallbackBaseUrl);
 
   try {
     const response = await fetchWithSession(primaryUrl, options);
 
-    if (response.status !== retryOnStatus || apiBaseUrl === fallbackBaseUrl) {
+    if (response.status !== retryOnStatus || !shouldTryFallback) {
       return response;
     }
   } catch (error) {
-    if (apiBaseUrl === fallbackBaseUrl) {
+    if (!shouldTryFallback) {
       throw error;
     }
   }

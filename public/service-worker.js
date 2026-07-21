@@ -1,12 +1,9 @@
 // Archivo básico de service worker para cachear archivos esenciales
-const CACHE_NAME = 'makeroute-cache-v1';
+const CACHE_NAME = 'makeroute-cache-v2';
 const urlsToCache = [
   '/',
-  '/makeroute/index.html',
-  '/makeroute/manifest.json',
-  '/makeroute/src/main.js',
-  '/makeroute/src/style.css',
-  // Agrega aquí más archivos según tu estructura
+  '/index.html',
+  '/manifest.json',
 ];
 
 self.addEventListener('install', event => {
@@ -17,6 +14,10 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET') {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then(response => {
       if (response) {

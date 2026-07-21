@@ -13,7 +13,7 @@ export async function createVehicleMaintenance(payload, adminKey) {
     body: JSON.stringify(payload),
   }, {
     apiBaseUrl: API_BASE_URL,
-    fallbackBaseUrl,
+    fallbackBaseUrl: fallbackApiBaseUrl,
   });
 
   return parseApiResponse(response, "No se pudo guardar el mantenimiento");
@@ -22,7 +22,7 @@ export async function createVehicleMaintenance(payload, adminKey) {
 export async function fetchRecentVehicleMaintenance(limit = 30) {
   const response = await requestApiWithFallback(`/vehicle-maintenance?limit=${limit}`, {}, {
     apiBaseUrl: API_BASE_URL,
-    fallbackBaseUrl,
+    fallbackBaseUrl: fallbackApiBaseUrl,
   });
   return parseApiResponse(response, "No se pudo cargar el historial de mantenimiento");
 }
@@ -30,7 +30,7 @@ export async function fetchRecentVehicleMaintenance(limit = 30) {
 export async function fetchUpcomingVehicleMaintenance(limit = 20) {
   const response = await requestApiWithFallback(`/vehicle-maintenance/upcoming?limit=${limit}`, {}, {
     apiBaseUrl: API_BASE_URL,
-    fallbackBaseUrl,
+    fallbackBaseUrl: fallbackApiBaseUrl,
   });
   return parseApiResponse(response, "No se pudo cargar la lista de proximos mantenimientos");
 }
@@ -38,7 +38,7 @@ export async function fetchUpcomingVehicleMaintenance(limit = 20) {
 export async function fetchVehicleMaintenanceByPlaca(placa) {
   const response = await requestApiWithFallback(`/vehicle-maintenance/placa/${encodeURIComponent(placa)}`, {}, {
     apiBaseUrl: API_BASE_URL,
-    fallbackBaseUrl,
+    fallbackBaseUrl: fallbackApiBaseUrl,
   });
   return parseApiResponse(response, "No se pudo cargar el historial por placa");
 }
@@ -53,7 +53,7 @@ export async function updateVehicleMaintenanceById(id, payload, adminKey) {
     body: JSON.stringify(payload),
   }, {
     apiBaseUrl: API_BASE_URL,
-    fallbackBaseUrl,
+    fallbackBaseUrl: fallbackApiBaseUrl,
   });
 
   return parseApiResponse(response, "No se pudo actualizar el mantenimiento");
@@ -67,7 +67,7 @@ export async function deleteVehicleMaintenanceById(id, adminKey) {
     },
   }, {
     apiBaseUrl: API_BASE_URL,
-    fallbackBaseUrl,
+    fallbackBaseUrl: fallbackApiBaseUrl,
   });
 
   return parseApiResponse(response, "No se pudo eliminar el mantenimiento");
