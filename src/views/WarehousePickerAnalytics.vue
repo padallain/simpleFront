@@ -22,7 +22,15 @@ const orderLookupLoading = ref(false);
 const orderLookupError = ref("");
 const orderLookupFeedback = ref("");
 const selectedOrderReport = ref(null);
+const editingOrderReport = ref(false);
+const savingOrderReport = ref(false);
+const deletingOrderReport = ref(false);
 const errorReportSubmitting = ref(false);
+const orderEditForm = reactive({
+  responsableId: "",
+  numeroPedido: "",
+  numeroCajas: 1,
+});
 const errorReportForm = reactive({
   tipoError: "",
   descripcion: "",
@@ -79,10 +87,38 @@ function resetData() {
 
 function resetOrderLookup() {
   selectedOrderReport.value = null;
+  editingOrderReport.value = false;
   orderLookupError.value = "";
   orderLookupFeedback.value = "";
+  orderEditForm.responsableId = "";
+  orderEditForm.numeroPedido = "";
+  orderEditForm.numeroCajas = 1;
   errorReportForm.tipoError = "";
   errorReportForm.descripcion = "";
+}
+
+function syncOrderEditForm(report) {
+  orderEditForm.responsableId = String(report?.responsableId || "");
+  orderEditForm.numeroPedido = String(report?.numeroPedido || "");
+  orderEditForm.numeroCajas = Number(report?.numeroCajas) || 1;
+}
+
+function startOrderEdit() {
+  if (!selectedOrderReport.value) {
+    return;
+  }
+
+  syncOrderEditForm(selectedOrderReport.value);
+  editingOrderReport.value = true;
+  orderLookupError.value = "";
+  orderLookupFeedback.value = "";
+}
+
+function cancelOrderEdit() {
+  editingOrderReport.value = false;
+  if (selectedOrderReport.value) {
+    syncOrderEditForm(selectedOrderReport.value);
+  }
 }
 
 function buildSummaryQuery() {
@@ -319,6 +355,8 @@ async function searchPickingByOrder() {
     }
 
     selectedOrderReport.value = result?.report || null;
+    editingOrderReport.value = false;
+    syncOrderEditForm(selectedOrderReport.value);
     orderLookupFeedback.value = selectedOrderReport.value
       ? `Pedido ${selectedOrderReport.value.numeroPedido} encontrado.`
       : "No se encontro informacion del pedido.";
@@ -327,6 +365,111 @@ async function searchPickingByOrder() {
     orderLookupError.value = `Error buscando pedido: ${error.message}`;
   } finally {
     orderLookupLoading.value = false;
+  }
+}
+
+async function managePickingReport(numeroPedido) {
+  orderLookup.value = String(numeroPedido || "").trim().toUpperCase();
+  await searchPickingByOrder();
+}
+
+async function savePickingReport() {
+  const reportId = String(selectedOrderReport.value?._id || "").trim();
+  const responsableId = orderEditForm.responsableId.trim().toUpperCase();
+  const numeroPedido = orderEditForm.numeroPedido.trim().toUpperCase();
+  const numeroCajas = Number(orderEditForm.numeroCajas);
+
+  if (!reportId) {
+    orderLookupError.value = "Primero busca un picking valido.";
+    orderLookupFeedback.value = "";
+    return;
+  }
+
+  if (!responsableId || !numeroPedido || !Number.isInteger(numeroCajas) || numeroCajas < 1) {
+    orderLookupError.value = "Debes indicar responsable, pedido y una cantidad valida de cajas.";
+    orderLookupFeedback.value = "";
+    return;
+  }
+
+  savingOrderReport.value = true;
+  orderLookupError.value = "";
+  orderLookupFeedback.value = "";
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/internal/admin/picking-reports/${reportId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-delete-key": adminKeyInput.value.trim(),
+      },
+      body: JSON.stringify({
+        responsableId,
+        numeroPedido,
+        numeroCajas,
+      }),
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      orderLookupError.value = result?.message || "No se pudo actualizar el picking.";
+      return;
+    }
+
+    selectedOrderReport.value = result?.report || null;
+    orderLookup.value = selectedOrderReport.value?.numeroPedido || numeroPedido;
+    syncOrderEditForm(selectedOrderReport.value);
+    editingOrderReport.value = false;
+    orderLookupFeedback.value = `Picking ${orderLookup.value} actualizado correctamente.`;
+    await loadWarehouseAnalytics();
+  } catch (error) {
+    orderLookupError.value = `Error actualizando picking: ${error.message}`;
+  } finally {
+    savingOrderReport.value = false;
+  }
+}
+
+async function deletePickingReport() {
+  const reportId = String(selectedOrderReport.value?._id || "").trim();
+  const numeroPedido = String(selectedOrderReport.value?.numeroPedido || "").trim();
+
+  if (!reportId) {
+    orderLookupError.value = "Primero busca un picking valido.";
+    orderLookupFeedback.value = "";
+    return;
+  }
+
+  const confirmed = window.confirm(`Se eliminara el picking del pedido ${numeroPedido}. Esta accion no se puede deshacer. Deseas continuar?`);
+
+  if (!confirmed) {
+    return;
+  }
+
+  deletingOrderReport.value = true;
+  orderLookupError.value = "";
+  orderLookupFeedback.value = "";
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/internal/admin/picking-reports/${reportId}`, {
+      method: "DELETE",
+      headers: {
+        "x-admin-delete-key": adminKeyInput.value.trim(),
+      },
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      orderLookupError.value = result?.message || "No se pudo eliminar el picking.";
+      return;
+    }
+
+    resetOrderLookup();
+    orderLookup.value = "";
+    orderLookupFeedback.value = `Picking ${numeroPedido} eliminado correctamente.`;
+    await loadWarehouseAnalytics();
+  } catch (error) {
+    orderLookupError.value = `Error eliminando picking: ${error.message}`;
+  } finally {
+    deletingOrderReport.value = false;
   }
 }
 
@@ -495,6 +638,43 @@ onMounted(() => {
               <strong>{{ formatInteger(selectedOrderReport.totalErrores) }}</strong>
             </div>
           </div>
+
+          <div class="lookup-actions picker-admin-actions">
+            <button class="secondary-button" type="button" @click="startOrderEdit">
+              {{ editingOrderReport ? "Editando picking" : "Editar picking" }}
+            </button>
+            <button class="danger-button" type="button" :disabled="deletingOrderReport" @click="deletePickingReport">
+              {{ deletingOrderReport ? "Eliminando..." : "Eliminar picking" }}
+            </button>
+          </div>
+
+          <form v-if="editingOrderReport" class="lookup-report-form" @submit.prevent="savePickingReport">
+            <div class="lookup-edit-grid">
+              <label class="month-field">
+                <span>Responsable</span>
+                <input v-model="orderEditForm.responsableId" type="text" placeholder="Usuario almacenista" />
+              </label>
+
+              <label class="month-field">
+                <span>Numero de pedido</span>
+                <input v-model="orderEditForm.numeroPedido" type="text" placeholder="Ej: PED-001234" />
+              </label>
+
+              <label class="month-field">
+                <span>Numero de cajas</span>
+                <input v-model.number="orderEditForm.numeroCajas" type="number" min="1" step="1" />
+              </label>
+            </div>
+
+            <div class="lookup-actions">
+              <button class="primary-button" type="submit" :disabled="savingOrderReport">
+                {{ savingOrderReport ? "Guardando..." : "Guardar cambios" }}
+              </button>
+              <button class="secondary-button" type="button" @click="cancelOrderEdit">
+                Cancelar
+              </button>
+            </div>
+          </form>
 
           <form class="lookup-report-form" @submit.prevent="submitPickingErrorReport">
             <div class="lookup-report-grid">
@@ -675,6 +855,7 @@ onMounted(() => {
                 <th>Responsable</th>
                 <th>Pedido</th>
                 <th>Cajas</th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -683,6 +864,11 @@ onMounted(() => {
                 <td>{{ report.responsableId }}</td>
                 <td>{{ report.numeroPedido }}</td>
                 <td>{{ formatInteger(report.numeroCajas) }}</td>
+                <td>
+                  <button class="table-action-button secondary-button" type="button" :disabled="orderLookupLoading" @click="managePickingReport(report.numeroPedido)">
+                    Gestionar
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -813,7 +999,8 @@ textarea {
 
 .primary-button,
 .secondary-link,
-.secondary-button {
+.secondary-button,
+.danger-button {
   min-height: 46px;
   border-radius: 16px;
   display: inline-flex;
@@ -838,6 +1025,13 @@ textarea {
 }
 
 .secondary-button {
+  cursor: pointer;
+}
+
+.danger-button {
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  background: rgba(127, 29, 29, 0.32);
+  color: #fee2e2;
   cursor: pointer;
 }
 
@@ -1043,6 +1237,17 @@ textarea {
   grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.3fr);
 }
 
+.lookup-edit-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 1rem;
+}
+
+.picker-admin-actions {
+  margin-top: 1rem;
+}
+
 .lookup-report-description {
   min-width: 0;
 }
@@ -1085,6 +1290,11 @@ textarea {
   text-align: left;
 }
 
+.table-action-button {
+  min-height: 38px;
+  padding: 0.45rem 0.85rem;
+}
+
 @media (max-width: 960px) {
   .analytics-hero,
   .analytics-layout,
@@ -1099,6 +1309,7 @@ textarea {
   }
 
   .lookup-result-grid,
+  .lookup-edit-grid,
   .lookup-report-grid,
   .picker-metrics-grid {
     grid-template-columns: 1fr;

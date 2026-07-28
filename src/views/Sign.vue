@@ -51,6 +51,7 @@
             <div class="auth-field">
               <label for="signup-username">Usuario</label>
               <input id="signup-username" v-model="username" type="text" placeholder="coordinacion_rutas" autocomplete="username" />
+              <small>El usuario no se puede repetir y distingue mayusculas de minusculas.</small>
             </div>
           </div>
 

@@ -1,4 +1,5 @@
 <script setup>
+import { computed } from "vue";
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
@@ -16,7 +17,6 @@ const latitude = ref("");
 const clientCount = ref(0)
 const longitude = ref("");
 const adminKeyInput = ref("");
-import { computed } from "vue";
 
 const isAdminMode = computed(() => adminKeyInput.value === "4321");
 const numberInput = ref("");

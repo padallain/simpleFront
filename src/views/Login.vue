@@ -133,6 +133,11 @@ onMounted(() => {
     return;
   }
 
+  if (reason === "password-reset-success") {
+    infoMessage.value = "Contrasena actualizada. Inicia sesion con tu nueva clave.";
+    return;
+  }
+
   if (reason === "session-expired") {
     infoMessage.value = "Tu sesion expiro despues de 24 horas. Debes autenticarte otra vez.";
     return;

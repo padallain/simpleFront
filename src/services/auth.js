@@ -1,10 +1,11 @@
 const DEFAULT_LOCAL_API_BASE_URL = "http://localhost:8000";
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || DEFAULT_LOCAL_API_BASE_URL).replace(/\/$/, "");
-export const AUTH_ROUTE_PATHS = new Set(["/login", "/signup", "/recover-password"]);
+export const AUTH_ROUTE_PATHS = new Set(["/login", "/signup", "/recover-password", "/recover-password/code", "/recover-password/new-password"]);
 
 const SESSION_REDIRECT_REASON_KEY = "makeroute.sessionRedirectReason";
 const AUTH_TOKEN_STORAGE_KEY = "makeroute.authToken";
+const PASSWORD_RECOVERY_CONTEXT_KEY = "makeroute.passwordRecovery";
 
 const authState = {
   checked: false,
@@ -79,6 +80,26 @@ function withApiDefaults(options = {}) {
   };
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 20000) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...withApiDefaults(options),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("La solicitud tardo demasiado. Revisa la configuracion del correo del servidor.");
+    }
+
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 function getStoredAuthToken() {
   if (typeof window === "undefined") {
     return "";
@@ -98,6 +119,46 @@ function setStoredAuthToken(token) {
   }
 
   localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+}
+
+export function getPasswordRecoveryContext() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const rawValue = sessionStorage.getItem(PASSWORD_RECOVERY_CONTEXT_KEY);
+
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(rawValue);
+  } catch (_error) {
+    sessionStorage.removeItem(PASSWORD_RECOVERY_CONTEXT_KEY);
+    return null;
+  }
+}
+
+export function setPasswordRecoveryContext(context) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!context) {
+    sessionStorage.removeItem(PASSWORD_RECOVERY_CONTEXT_KEY);
+    return;
+  }
+
+  sessionStorage.setItem(PASSWORD_RECOVERY_CONTEXT_KEY, JSON.stringify(context));
+}
+
+export function clearPasswordRecoveryContext() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  sessionStorage.removeItem(PASSWORD_RECOVERY_CONTEXT_KEY);
 }
 
 function canUseLocalFallback(fallbackBaseUrl) {
@@ -306,6 +367,63 @@ export async function registerUser({ email, username, password }) {
 
   if (!response.ok) {
     throw new Error(result?.message || "No se pudo crear la cuenta");
+  }
+
+  return result;
+}
+
+export async function requestPasswordResetCode(email) {
+  const response = await fetchWithTimeout(`${API_BASE_URL}/recover-password/request-code`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-skip-auth-redirect": "true",
+    },
+    body: JSON.stringify({ email }),
+  }, 20000);
+
+  const result = await parseJson(response);
+
+  if (!response.ok) {
+    throw new Error(result?.message || "No se pudo enviar el codigo de recuperacion");
+  }
+
+  return result;
+}
+
+export async function verifyPasswordResetCode({ email, code }) {
+  const response = await fetch(`${API_BASE_URL}/recover-password/verify-code`, withApiDefaults({
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-skip-auth-redirect": "true",
+    },
+    body: JSON.stringify({ email, code }),
+  }));
+
+  const result = await parseJson(response);
+
+  if (!response.ok) {
+    throw new Error(result?.message || "No se pudo validar el codigo");
+  }
+
+  return result;
+}
+
+export async function resetPasswordWithCode({ email, code, newPassword }) {
+  const response = await fetch(`${API_BASE_URL}/recover-password/reset`, withApiDefaults({
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-skip-auth-redirect": "true",
+    },
+    body: JSON.stringify({ email, code, newPassword }),
+  }));
+
+  const result = await parseJson(response);
+
+  if (!response.ok) {
+    throw new Error(result?.message || "No se pudo actualizar la contrasena");
   }
 
   return result;

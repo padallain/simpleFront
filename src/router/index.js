@@ -5,6 +5,8 @@ import Routes from "../views/Routes.vue";
 import Sign from "../views/Sign.vue";
 import Login from "../views/Login.vue";
 import RecoverPassword from "../views/RecoverPassword.vue";
+import RecoverPasswordCode from "../views/RecoverPasswordCode.vue";
+import RecoverPasswordReset from "../views/RecoverPasswordReset.vue";
 import DailyCheck from "../views/DailyCheck.vue";
 import DailyCheckHistory from "../views/DailyCheckHistory.vue";
 import DriverRoute from "../views/DriverRoute.vue";
@@ -31,6 +33,8 @@ const routes = [
   { path: "/signup", component: Sign },
   { path: "/login", component: Login },
   { path: "/recover-password", component: RecoverPassword },
+  { path: "/recover-password/code", component: RecoverPasswordCode },
+  { path: "/recover-password/new-password", component: RecoverPasswordReset },
   { path: "/daily-check", component: DailyCheck },
   { path: "/daily-check-history", component: DailyCheckHistory },
   { path: "/driver-route", component: DriverRoute },
