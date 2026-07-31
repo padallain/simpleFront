@@ -1,11 +1,12 @@
 const DEFAULT_LOCAL_API_BASE_URL = "http://localhost:8000";
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || DEFAULT_LOCAL_API_BASE_URL).replace(/\/$/, "");
-export const AUTH_ROUTE_PATHS = new Set(["/login", "/signup", "/recover-password", "/recover-password/code", "/recover-password/new-password"]);
+export const AUTH_ROUTE_PATHS = new Set(["/login", "/recover-password", "/recover-password/code", "/recover-password/new-password"]);
 
 const SESSION_REDIRECT_REASON_KEY = "makeroute.sessionRedirectReason";
 const AUTH_TOKEN_STORAGE_KEY = "makeroute.authToken";
 const PASSWORD_RECOVERY_CONTEXT_KEY = "makeroute.passwordRecovery";
+const SESSION_CHECK_TIMEOUT_MS = Number(import.meta.env.VITE_SESSION_CHECK_TIMEOUT_MS || 8000);
 
 const authState = {
   checked: false,
@@ -294,11 +295,11 @@ export async function fetchSession({ force = false } = {}) {
 
   sessionRequest = (async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/session`, withApiDefaults({
+      const response = await fetchWithTimeout(`${API_BASE_URL}/session`, {
         headers: {
           "x-skip-auth-redirect": "true",
         },
-      }));
+      }, SESSION_CHECK_TIMEOUT_MS);
 
       const result = await parseJson(response);
 
@@ -462,4 +463,80 @@ export function installApiAuthInterceptor() {
   };
 
   fetchInterceptorInstalled = true;
+}
+
+export async function fetchAdminUsers({ status = "all" } = {}) {
+  const searchParams = new URLSearchParams();
+
+  if (status && status !== "all") {
+    searchParams.set("status", status);
+  }
+
+  const query = searchParams.toString();
+  const response = await fetchWithSession(`${API_BASE_URL}/internal/admin/users${query ? `?${query}` : ""}`, {
+    headers: {
+      "x-skip-auth-redirect": "true",
+    },
+  });
+  const result = await parseJson(response);
+
+  if (!response.ok) {
+    throw new Error(result?.message || "No se pudieron cargar los usuarios");
+  }
+
+  return result;
+}
+
+export async function approveUserByAdmin({ userId, isApproved, role = "user" }) {
+  const response = await fetchWithSession(`${API_BASE_URL}/internal/admin/users/${encodeURIComponent(userId)}/approval`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "x-skip-auth-redirect": "true",
+    },
+    body: JSON.stringify({ isApproved, role }),
+  });
+  const result = await parseJson(response);
+
+  if (!response.ok) {
+    throw new Error(result?.message || "No se pudo actualizar la aprobacion del usuario");
+  }
+
+  return result;
+}
+
+export async function updateUserPasswordByAdmin({ userId, newPassword }) {
+  const response = await fetchWithSession(`${API_BASE_URL}/internal/admin/users/${encodeURIComponent(userId)}/password`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "x-skip-auth-redirect": "true",
+    },
+    body: JSON.stringify({ newPassword }),
+  });
+  const result = await parseJson(response);
+
+  if (!response.ok) {
+    throw new Error(result?.message || "No se pudo actualizar la contrasena");
+  }
+
+  return result;
+}
+
+export async function createUserByAdmin({ email, username, password, role = "user" }) {
+  const response = await fetchWithSession(`${API_BASE_URL}/internal/admin/users`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-skip-auth-redirect": "true",
+    },
+    body: JSON.stringify({ email, username, password, role }),
+  });
+  const result = await parseJson(response);
+
+  if (!response.ok) {
+    throw new Error(result?.message || "No se pudo crear el usuario");
+  }
+
+  return result;
 }

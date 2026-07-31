@@ -59,13 +59,13 @@
           <p v-if="statusMessage" class="auth-status" :class="statusClass">{{ statusMessage }}</p>
 
           <button class="auth-submit" type="submit" :disabled="isSubmitting">
+            <span v-if="isSubmitting" class="mini-loader" aria-hidden="true"></span>
             {{ isSubmitting ? "Validando acceso..." : "Entrar al sistema" }}
           </button>
         </form>
 
         <p class="auth-switch">
-          Aun no tienes cuenta?
-          <a href="#" @click.prevent="goToSign">Crear cuenta</a>
+          Si no tienes cuenta, solicita el alta a tu administrador.
         </p>
       </div>
     </div>
@@ -129,7 +129,17 @@ onMounted(() => {
   }
 
   if (reason === "signup-success") {
-    infoMessage.value = "Cuenta creada. Inicia sesion con tus credenciales.";
+    infoMessage.value = "Cuenta creada y aprobada. Inicia sesion con tus credenciales.";
+    return;
+  }
+
+  if (reason === "signup-pending") {
+    infoMessage.value = "Solicitud enviada. Un administrador debe aprobar tu usuario antes de iniciar sesion.";
+    return;
+  }
+
+  if (reason === "admin-only") {
+    infoMessage.value = "Esa pantalla solo esta disponible para administradores.";
     return;
   }
 
@@ -148,11 +158,27 @@ onMounted(() => {
   }
 });
 
-function goToSign() {
-  router.push("/signup");
-}
-
 function goToRecover() {
   router.push("/recover-password");
 }
 </script>
+
+<style scoped>
+.mini-loader {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 0.5rem;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: rgba(255, 255, 255, 0.95);
+  border-radius: 50%;
+  vertical-align: -2px;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+</style>

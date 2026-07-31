@@ -37,8 +37,8 @@
       <div class="auth-panel">
         <div class="auth-panel-header">
           <img :src="easyMoveLogo" alt="Easy Move" />
-          <h2>Registrarse</h2>
-          <p>Completa los datos iniciales para generar tu acceso a MakeRoute.</p>
+          <h2>Solicitar acceso</h2>
+          <p>Completa los datos para enviar tu solicitud. Un administrador debe aprobarla.</p>
         </div>
 
         <form class="auth-form" @submit.prevent="submitSignup">
@@ -63,7 +63,7 @@
           <p v-if="statusMessage" class="auth-status" :class="statusClass">{{ statusMessage }}</p>
 
           <button class="auth-submit" type="submit" :disabled="isSubmitting">
-            {{ isSubmitting ? "Creando cuenta..." : "Crear cuenta" }}
+            {{ isSubmitting ? "Enviando solicitud..." : "Solicitar acceso" }}
           </button>
         </form>
 
@@ -105,7 +105,7 @@ async function submitSignup() {
   isSubmitting.value = true;
 
   try {
-    await registerUser({
+    const result = await registerUser({
       email: email.value.trim(),
       username: username.value.trim(),
       password: password.value,
@@ -113,7 +113,7 @@ async function submitSignup() {
 
     await router.push({
       path: "/login",
-      query: { reason: "signup-success" },
+      query: { reason: result?.pendingApproval ? "signup-pending" : "signup-success" },
     });
   } catch (error) {
     errorMessage.value = error.message || "No se pudo crear la cuenta.";

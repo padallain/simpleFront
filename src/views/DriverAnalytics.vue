@@ -16,6 +16,12 @@ const createEmptyOverview = () => ({
   pendingCount: 0,
   avgKgPerDriver: 0,
   avgClientsPerDriver: 0,
+  totalIssueReports: 0,
+  totalIssueItems: 0,
+  highNoveltyDrivers: 0,
+  avgIssueRatePer100Clients: 0,
+  repeatIssueClientRate: 0,
+  noveltyThreshold: 20,
 });
 
 const selectedMonth = ref(getCurrentMonthValue());
@@ -150,6 +156,16 @@ onMounted(() => {
           <strong>{{ overview.dispatchRate }}%</strong>
           <small>{{ formatInteger(overview.pendingCount) }} pendientes del mes</small>
         </article>
+        <article class="summary-card accent-violet">
+          <span class="summary-label">Choferes alto indicador</span>
+          <strong>{{ formatInteger(overview.highNoveltyDrivers) }}</strong>
+          <small>{{ formatDecimal(overview.avgIssueRatePer100Clients, 1) }} novedades por cada 100 clientes</small>
+        </article>
+        <article class="summary-card accent-red-soft">
+          <span class="summary-label">KPI recurrencia novedad</span>
+          <strong>{{ overview.repeatIssueClientRate }}%</strong>
+          <small>Clientes con novedad repetida sobre clientes con novedad</small>
+        </article>
       </div>
 
       <p v-if="errorMessage" class="feedback error-text">
@@ -211,6 +227,11 @@ onMounted(() => {
                 <span>Distancia promedio</span>
                 <strong>{{ formatDistance(topDriver.avgDistancePerRoute) }}</strong>
                 <small>Promedio recorrido por ruta</small>
+              </article>
+              <article class="kpi-card">
+                <span>Riesgo por novedad</span>
+                <strong>{{ topDriver.issueRatePer100Clients }}%</strong>
+                <small>{{ topDriver.repeatIssueClientsCount }} clientes con novedad repetida</small>
               </article>
             </div>
           </div>
@@ -283,6 +304,14 @@ onMounted(() => {
                 <span>Pendientes</span>
                 <strong>{{ formatInteger(driver.pendingCount) }}</strong>
               </div>
+              <div>
+                <span>Novedades</span>
+                <strong>{{ formatInteger(driver.issueReportCount) }}</strong>
+              </div>
+              <div>
+                <span>Clientes con novedad</span>
+                <strong>{{ formatInteger(driver.clientsWithIssuesCount) }}</strong>
+              </div>
             </div>
 
             <div class="driver-progress-group">
@@ -304,12 +333,22 @@ onMounted(() => {
                   <div class="progress-fill progress-fill-green" :style="{ width: `${driver.dispatchRate}%` }" />
                 </div>
               </div>
+              <div>
+                <div class="progress-meta">
+                  <span>Novedades / 100 clientes</span>
+                  <strong>{{ driver.issueRatePer100Clients }}%</strong>
+                </div>
+                <div class="progress-track">
+                  <div class="progress-fill progress-fill-rose" :style="{ width: `${Math.min(driver.issueRatePer100Clients, 100)}%` }" />
+                </div>
+              </div>
             </div>
 
             <div class="driver-footer">
               <span>{{ formatDecimal(driver.avgClientsPerRoute, 1) }} clientes/ruta</span>
               <span>{{ formatDecimal(driver.avgKgPerRoute, 1) }} kg/ruta</span>
               <span>{{ formatDistance(driver.avgDistancePerRoute) }}</span>
+              <span>Reincidencias: {{ formatInteger(driver.repeatIssueClientsCount) }}</span>
             </div>
           </article>
         </div>
@@ -446,7 +485,7 @@ h1 {
 }
 
 .summary-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   margin-bottom: 1rem;
 }
 
@@ -500,6 +539,14 @@ h1 {
 
 .accent-rose {
   border-color: rgba(255, 133, 162, 0.32);
+}
+
+.accent-violet {
+  border-color: rgba(167, 139, 250, 0.34);
+}
+
+.accent-red-soft {
+  border-color: rgba(248, 113, 113, 0.34);
 }
 
 .feedback {
@@ -681,7 +728,7 @@ h1 {
 
 .driver-metrics-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.75rem;
   margin: 1rem 0;
 }
@@ -710,6 +757,10 @@ h1 {
 
 .progress-fill-green {
   background: linear-gradient(90deg, #6cf0d0 0%, #2ec4b6 100%);
+}
+
+.progress-fill-rose {
+  background: linear-gradient(90deg, #fda4af 0%, #fb7185 100%);
 }
 
 .driver-footer {

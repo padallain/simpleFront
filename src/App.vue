@@ -1,7 +1,7 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { AUTH_ROUTE_PATHS, logoutSession } from './services/auth'
+import { AUTH_ROUTE_PATHS, fetchSession, getAuthState, logoutSession } from './services/auth'
 
 const router = useRouter()
 const route = useRoute()
@@ -20,11 +20,14 @@ const PAGE_TITLES = {
   '/dispatch-status': 'Estatus Despachos',
   '/daily-check-history': 'Historial Chequeos',
   '/route-management': 'Gestión de Rutas',
+  '/admin-users': 'Usuarios Admin',
 }
 
 const currentPageTitle = computed(() => PAGE_TITLES[route.path] ?? '')
 const showTopNav = computed(() => !AUTH_ROUTE_PATHS.has(route.path))
 const isLoggingOut = ref(false)
+const authUser = ref(getAuthState().user || null)
+const isAdminUser = computed(() => Boolean(authUser.value?.isAdmin))
 
 function goToHome()                    { router.push('/') }
 function goToRoutes()                  { router.push('/routes') }
@@ -36,6 +39,7 @@ function goToDriverAnalytics()         { router.push('/driver-analytics') }
 function goToWarehousePickerAnalytics(){ router.push('/warehouse-picker-analytics') }
 function goToDispatchControl()         { router.push('/dispatch-control') }
 function goToVehicleMaintenance()      { router.push('/vehicle-maintenance-history') }
+function goToAdminUsers()              { router.push('/admin-users') }
 
 async function handleLogout() {
   if (isLoggingOut.value) {
@@ -51,6 +55,23 @@ async function handleLogout() {
     router.replace({ path: '/login', query: { reason: 'signed-out' } })
   }
 }
+
+async function refreshAuthUser() {
+  try {
+    const sessionState = await fetchSession({ force: true })
+    authUser.value = sessionState.user || null
+  } catch (_error) {
+    authUser.value = null
+  }
+}
+
+onMounted(async () => {
+  await refreshAuthUser()
+})
+
+watch(() => route.fullPath, () => {
+  refreshAuthUser()
+})
 </script>
 
 <template>
@@ -73,6 +94,7 @@ async function handleLogout() {
         <button class="nav-chip" type="button" @click="goToWarehousePickerAnalytics">Análisis almacenistas</button>
         <button class="nav-chip" type="button" @click="goToDispatchControl">Dispatch control</button>
         <button class="nav-chip" type="button" @click="goToVehicleMaintenance">Mantenimiento</button>
+        <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToAdminUsers">Usuarios admin</button>
       </div>
 
       <!-- Other pages: back button + page title -->
@@ -87,6 +109,9 @@ async function handleLogout() {
       </div>
 
       <div class="nav-actions">
+        <button v-if="isAdminUser && route.path !== '/admin-users'" class="nav-admin-link" type="button" @click="goToAdminUsers">
+          Usuarios admin
+        </button>
         <button class="nav-logout" type="button" :disabled="isLoggingOut" @click="handleLogout">
           {{ isLoggingOut ? 'Saliendo...' : 'Cerrar sesion' }}
         </button>
@@ -259,6 +284,26 @@ async function handleLogout() {
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.nav-admin-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 0.5rem;
+  padding: 0.38rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid rgba(96, 165, 250, 0.34);
+  background: rgba(30, 64, 175, 0.24);
+  color: #bfdbfe;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nav-admin-link:hover {
+  background: rgba(37, 99, 235, 0.32);
+  border-color: rgba(147, 197, 253, 0.5);
 }
 
 .nav-logout:hover:enabled {

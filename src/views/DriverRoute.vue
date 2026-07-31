@@ -394,6 +394,45 @@ async function loadDriverRoute() {
   }
 }
 
+async function loadDriverRouteById(routeId) {
+  const normalizedRouteId = String(routeId || "").trim();
+
+  if (!normalizedRouteId) {
+    return;
+  }
+
+  loading.value = true;
+  errorMessage.value = "";
+  feedback.value = "";
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/driver-routes/by-id/${encodeURIComponent(normalizedRouteId)}`);
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      routeData.value = null;
+      assignedRoutes.value = [];
+      errorMessage.value = result?.message || "No se pudo cargar la ruta seleccionada.";
+      return;
+    }
+
+    assignedRoutes.value = Array.isArray(result?.routes)
+      ? result.routes
+      : result?.route
+        ? [result.route]
+        : [];
+    routeData.value = result?.route || assignedRoutes.value[0] || null;
+    driverId.value = String(routeData.value?.driverId || driverId.value || "").trim();
+    resetRouteUiState();
+  } catch (error) {
+    routeData.value = null;
+    assignedRoutes.value = [];
+    errorMessage.value = `Error cargando ruta seleccionada: ${error.message}`;
+  } finally {
+    loading.value = false;
+  }
+}
+
 async function updateDispatch(stop, dispatched) {
   if (!routeData.value?._id) {
     return;
@@ -474,6 +513,43 @@ function openRouteIssueSummary() {
   }
 
   router.push(`/driver-route/${routeData.value._id}/issues-summary`);
+}
+
+async function downloadRouteGpx() {
+  const routeId = String(routeData.value?._id || "").trim();
+
+  if (!routeId) {
+    errorMessage.value = "No hay una ruta seleccionada para exportar.";
+    return;
+  }
+
+  errorMessage.value = "";
+  feedback.value = "";
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/driver-routes/${encodeURIComponent(routeId)}/export-gpx`);
+
+    if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      errorMessage.value = result?.message || "No se pudo exportar el GPX oficial del backend.";
+      return;
+    }
+
+    const contentDisposition = response.headers.get("Content-Disposition") || "";
+    const matchedFileName = contentDisposition.match(/filename="?([^\";]+)"?/i);
+    const fileName = matchedFileName?.[1] || `${routeData.value?.routeLabel || "ruta"}.gpx`;
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    URL.revokeObjectURL(url);
+    feedback.value = "GPX oficial descargado desde backend. Ese archivo respeta la ruta exacta del sistema.";
+  } catch (error) {
+    errorMessage.value = `Error exportando GPX: ${error.message}`;
+  }
 }
 
 async function submitDispatchIssue(stop) {
@@ -562,6 +638,14 @@ onMounted(async () => {
   const prefilledDriverId = typeof route.query.driverId === "string"
     ? route.query.driverId.trim()
     : "";
+  const prefilledRouteId = typeof route.query.routeId === "string"
+    ? route.query.routeId.trim()
+    : "";
+
+  if (prefilledRouteId) {
+    await loadDriverRouteById(prefilledRouteId);
+    return;
+  }
 
   const sessionDriverId = resolveSessionDriverId();
   const nextDriverId = prefilledDriverId || sessionDriverId;
@@ -669,6 +753,9 @@ onMounted(async () => {
             <button class="secondary-button action-button" type="button" @click="startRouteEditing">
               Personalizar orden
             </button>
+            <button class="secondary-button action-button" type="button" @click="downloadRouteGpx">
+              Descargar GPX exacto
+            </button>
             <button
               class="ghost-button action-button"
               type="button"
@@ -694,6 +781,7 @@ onMounted(async () => {
             title="Mapa OSM de la ruta"
             description="Aquí sí se muestran las paradas con su orden dentro del teléfono, sin depender del visor externo."
             :stops="routeMapStops"
+            :canvas-min-height="640"
           />
         </div>
 
@@ -1127,6 +1215,12 @@ onMounted(async () => {
   background: rgba(70, 52, 11, 0.22);
 }
 
+.map-card {
+  width: min(1560px, calc(100vw - 1.5rem));
+  margin-left: 50%;
+  transform: translateX(-50%);
+}
+
 .missing-item,
 .stop-item {
   padding: 1rem;
@@ -1275,6 +1369,12 @@ onMounted(async () => {
   .stop-actions a {
     width: 100%;
     text-align: center;
+  }
+
+  .map-card {
+    width: auto;
+    margin-left: 0;
+    transform: none;
   }
 }
 

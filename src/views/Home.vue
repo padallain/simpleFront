@@ -8,10 +8,13 @@ import {
   queueClientForSync,
   removeQueuedClients,
 } from "../services/offlineClientQueue";
+import { fetchSession, getAuthState } from "../services/auth";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 const route = useRoute();
 const router = useRouter();
+const authUser = ref(getAuthState().user || null);
+const isAdminUser = computed(() => Boolean(authUser.value?.isAdmin));
 
 const latitude = ref("");
 const clientCount = ref(0)
@@ -338,7 +341,7 @@ const fetchClientCount = async () => {
 };
 
 // Llama a la función al montar el componente
-onMounted(() => {
+onMounted(async () => {
   const queryClientId = typeof route.query.clientId === "string" ? route.query.clientId.trim() : "";
 
   if (queryClientId) {
@@ -350,6 +353,13 @@ onMounted(() => {
   syncPendingClients({ silent: true });
   window.addEventListener("online", handleOnline);
   window.addEventListener("offline", handleOffline);
+
+  try {
+    const sessionState = await fetchSession({ force: true });
+    authUser.value = sessionState.user || null;
+  } catch (_error) {
+    authUser.value = null;
+  }
 });
 
 onBeforeUnmount(() => {
@@ -552,6 +562,10 @@ const goToWarehousePicking = () => {
   router.push('/warehouse-picking');
 };
 
+const goToAdminUsers = () => {
+  router.push('/admin-users');
+};
+
 
 </script>
 
@@ -657,6 +671,20 @@ const goToWarehousePicking = () => {
           <span class="mod-text">
             <strong>Picking</strong>
             <em>Registrar cajas y pedidos</em>
+          </span>
+          <span class="mod-chevron">›</span>
+        </button>
+
+        <button v-if="isAdminUser" class="module-card module-card-admin" type="button" @click="goToAdminUsers">
+          <span class="mod-icon" style="--c:#fb7185;--b:rgba(251,113,133,0.14)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/>
+              <path d="M9 12l2 2 4-4"/>
+            </svg>
+          </span>
+          <span class="mod-text">
+            <strong>Usuarios admin</strong>
+            <em>Aprobar y gestionar accesos</em>
           </span>
           <span class="mod-chevron">›</span>
         </button>
