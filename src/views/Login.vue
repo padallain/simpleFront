@@ -134,7 +134,7 @@ onMounted(() => {
   }
 
   if (reason === "signup-pending") {
-    infoMessage.value = "Solicitud enviada. Un administrador debe aprobar tu usuario antes de iniciar sesion.";
+    infoMessage.value = "Cuenta registrada. Inicia sesion con tus credenciales.";
     return;
   }
 

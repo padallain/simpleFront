@@ -20,6 +20,7 @@ const openIssueForms = reactive({});
 const issueForms = reactive({});
 const editingRoute = ref(false);
 const editableStops = ref([]);
+const priorityStopClientId = ref("");
 const routeActionLoading = ref("");
 const draggedStopIndex = ref(-1);
 const dragOverStopIndex = ref(-1);
@@ -109,6 +110,7 @@ function createIssueItem() {
 function resetRouteUiState() {
   editingRoute.value = false;
   editableStops.value = [];
+  priorityStopClientId.value = "";
   Object.keys(openIssueForms).forEach((key) => {
     delete openIssueForms[key];
   });
@@ -162,6 +164,7 @@ function startRouteEditing() {
   }
 
   editableStops.value = cloneStops(routeData.value.stops);
+  priorityStopClientId.value = String(editableStops.value[0]?.clientId || "").trim();
   editingRoute.value = true;
   errorMessage.value = "";
   feedback.value = "";
@@ -170,8 +173,53 @@ function startRouteEditing() {
 function cancelRouteEditing() {
   editingRoute.value = false;
   editableStops.value = [];
+  priorityStopClientId.value = "";
   draggedStopIndex.value = -1;
   dragOverStopIndex.value = -1;
+}
+
+function togglePriorityStop(clientId) {
+  const normalizedClientId = String(clientId || "").trim();
+
+  if (!normalizedClientId) {
+    return;
+  }
+
+  priorityStopClientId.value = priorityStopClientId.value === normalizedClientId
+    ? ""
+    : normalizedClientId;
+}
+
+function applyMirroredRouteOrder() {
+  if (!editingRoute.value || editableStops.value.length < 2) {
+    return;
+  }
+
+  const stops = [...editableStops.value];
+  const normalizedPriorityId = String(priorityStopClientId.value || "").trim();
+  let nextStops = [];
+
+  if (normalizedPriorityId) {
+    const priorityStop = stops.find((stop) => String(stop?.clientId || "").trim() === normalizedPriorityId);
+
+    if (priorityStop) {
+      const remainingStops = stops.filter((stop) => String(stop?.clientId || "").trim() !== normalizedPriorityId);
+      nextStops = [priorityStop, ...remainingStops.reverse()];
+    } else {
+      nextStops = stops.reverse();
+      priorityStopClientId.value = "";
+    }
+  } else {
+    nextStops = stops.reverse();
+  }
+
+  editableStops.value = normalizeEditableStopOrder(nextStops);
+  draggedStopIndex.value = -1;
+  dragOverStopIndex.value = -1;
+  errorMessage.value = "";
+  feedback.value = normalizedPriorityId
+    ? `Orden espejo aplicado con prioridad en cliente ${normalizedPriorityId}.`
+    : "Orden espejo aplicado sin cliente prioritario.";
 }
 
 function normalizeEditableStopOrder(stops) {
@@ -795,6 +843,14 @@ onMounted(async () => {
             <p class="editor-help">
               Mantén presionada una parada, arrástrala y suéltala en la posición que quieras.
             </p>
+            <div class="editor-mirror-controls">
+              <button class="ghost-button" type="button" @click="applyMirroredRouteOrder">
+                Aplicar espejo
+              </button>
+              <span class="editor-priority-note">
+                {{ priorityStopClientId ? `Prioridad: ${priorityStopClientId}` : "Sin prioridad fija" }}
+              </span>
+            </div>
             <div class="editable-stops-list">
               <article
                 v-for="(stop, index) in editableStops"
@@ -815,6 +871,15 @@ onMounted(async () => {
                   <p>ID {{ stop.clientId }}</p>
                 </div>
                 <div class="editable-stop-actions">
+                  <button
+                    class="priority-star-btn"
+                    :class="{ 'priority-star-btn-active': priorityStopClientId === String(stop.clientId) }"
+                    type="button"
+                    :title="priorityStopClientId === String(stop.clientId) ? 'Quitar prioridad' : 'Marcar prioridad para espejo'"
+                    @click="togglePriorityStop(stop.clientId)"
+                  >
+                    {{ priorityStopClientId === String(stop.clientId) ? "★" : "☆" }}
+                  </button>
                   <span class="drag-handle">Arrastrar</span>
                 </div>
               </article>
@@ -980,6 +1045,7 @@ onMounted(async () => {
 }
 
 .driver-shell {
+  width: min(1040px, 100%);
   max-width: 1040px;
   margin: 0 auto;
   color: #f3f6fb;
@@ -1088,6 +1154,10 @@ onMounted(async () => {
   gap: 1rem;
 }
 
+.driver-results {
+  width: 100%;
+}
+
 .actions-grid {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   margin-top: 1rem;
@@ -1109,6 +1179,18 @@ onMounted(async () => {
 .editor-help {
   margin: 0;
   color: rgba(243, 246, 251, 0.72);
+}
+
+.editor-mirror-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.editor-priority-note {
+  color: rgba(243, 246, 251, 0.76);
+  font-size: 0.9rem;
 }
 
 .fact-item,
@@ -1160,6 +1242,27 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.06);
   color: rgba(243, 246, 251, 0.82);
   font-weight: 700;
+}
+
+.priority-star-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  min-height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(159, 209, 255, 0.34);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(243, 246, 251, 0.9);
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.priority-star-btn-active {
+  border-color: rgba(255, 213, 154, 0.55);
+  background: rgba(255, 213, 154, 0.16);
+  color: #ffe8c3;
 }
 
 .progress-strip {
@@ -1216,9 +1319,9 @@ onMounted(async () => {
 }
 
 .map-card {
-  width: min(1560px, calc(100vw - 1.5rem));
-  margin-left: 50%;
-  transform: translateX(-50%);
+  width: 100%;
+  margin-left: 0;
+  transform: none;
 }
 
 .missing-item,
