@@ -341,6 +341,29 @@ const activeRouteOption = computed(() => {
   return routeOptions.value.find((option) => option.type === selectedRouteType.value) || routeOptions.value[0];
 });
 
+const activeRouteOrigin = computed(() => {
+  const fallbackOrigin = { latitude: 10.578208693113535, longitude: -71.67338068775426 };
+  const rawLink = String(activeRouteOption.value?.openRouteLink || "").trim();
+
+  if (!rawLink) {
+    return fallbackOrigin;
+  }
+
+  try {
+    const parsedUrl = new URL(rawLink);
+    const latitude = Number(parsedUrl.searchParams.get("n1"));
+    const longitude = Number(parsedUrl.searchParams.get("n2"));
+
+    if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+      return { latitude, longitude };
+    }
+  } catch (_error) {
+    // Keep default origin if URL parsing fails.
+  }
+
+  return fallbackOrigin;
+});
+
 const editableRoute = ref([]);
 const draggedIndex = ref(null);
 
@@ -1008,6 +1031,8 @@ async function makeRoute() {
             title="Mapa OSM de la ruta"
             description="Las paradas se muestran numeradas sobre OpenStreetMap para revisarlas mejor también en teléfono."
             :stops="activeRouteMapStops"
+            :origin="activeRouteOrigin"
+            canvasMinHeight="clamp(460px, 62vh, 760px)"
           />
         </div>
 

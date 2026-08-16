@@ -34,7 +34,7 @@ async function resolveSessionStateWithTimeout(currentAuthState) {
   try {
     const sessionTimeoutPromise = new Promise((resolve) => {
       timeoutId = window.setTimeout(() => {
-        resolve({
+        resolve(currentAuthState.checked ? currentAuthState : {
           ...currentAuthState,
           checked: true,
           authenticated: false,

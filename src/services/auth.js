@@ -312,6 +312,12 @@ export async function fetchSession({ force = false } = {}) {
       return getAuthState();
     } catch (error) {
       console.warn("[auth] session check failed", error);
+      // Keep current authenticated state on transient failures (timeout/network)
+      // so users are not logged out before the 24h session actually expires.
+      if (authState.checked && authState.authenticated) {
+        return getAuthState();
+      }
+
       clearAuthState();
       return getAuthState();
     }

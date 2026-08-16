@@ -22,6 +22,7 @@ const currentViewLabel = ref("Ultimos mantenimientos");
 const errorMessage = ref("");
 const feedbackMessage = ref("");
 const editingRecordId = ref("");
+const adminKeyInputRef = ref(null);
 
 const maintenanceForm = reactive(createEmptyMaintenanceForm());
 
@@ -56,6 +57,15 @@ function createEmptyMaintenanceForm() {
 const totalCostFromItems = computed(() => maintenanceForm.items.reduce((sum, item) => sum + (Number(item.costo) || 0), 0));
 const completedCount = computed(() => maintenanceRecords.value.filter((record) => record.estado === "completado").length);
 const pendingCount = computed(() => maintenanceRecords.value.filter((record) => record.estado !== "completado").length);
+const hasAdminKey = computed(() => Boolean(adminKey.value.trim()));
+
+function focusAdminKeyInput() {
+  const inputElement = adminKeyInputRef.value;
+
+  if (inputElement && typeof inputElement.focus === "function") {
+    inputElement.focus();
+  }
+}
 
 function formatDate(value) {
   if (!value) {
@@ -241,6 +251,7 @@ async function completeUpcomingMaintenance(record) {
   if (!normalizedAdminKey) {
     errorMessage.value = "Ingresa la clave interna para marcar el mantenimiento como completado.";
     feedbackMessage.value = "";
+    focusAdminKeyInput();
     return;
   }
 
@@ -438,7 +449,13 @@ onMounted(() => {
             <p class="panel-kicker">Pendientes por cercania</p>
             <h2>Proximos mantenimientos</h2>
           </div>
-          <span class="status-pill">{{ upcomingMaintenance.length }} pendientes</span>
+          <div class="upcoming-header-actions">
+            <span class="status-pill">{{ upcomingMaintenance.length }} pendientes</span>
+            <label class="field-group upcoming-key-field">
+              <span>Clave interna</span>
+              <input ref="adminKeyInputRef" v-model="adminKey" type="password" placeholder="Ingresa clave para completar" />
+            </label>
+          </div>
         </div>
 
         <p v-if="!upcomingMaintenance.length" class="feedback">
@@ -461,8 +478,8 @@ onMounted(() => {
             </div>
 
             <div class="upcoming-actions">
-              <button class="primary-button" type="button" :disabled="savingRecordId === record._id" @click="completeUpcomingMaintenance(record)">
-                {{ savingRecordId === record._id ? 'Guardando...' : 'Marcar como completado' }}
+              <button class="primary-button" type="button" :disabled="savingRecordId === record._id || !hasAdminKey" @click="completeUpcomingMaintenance(record)">
+                {{ savingRecordId === record._id ? 'Guardando...' : hasAdminKey ? 'Marcar como completado' : 'Ingresa clave interna' }}
               </button>
             </div>
           </article>
@@ -797,6 +814,29 @@ onMounted(() => {
   justify-content: stretch;
   margin-top: auto;
   padding-top: 1rem;
+}
+
+.upcoming-header-actions {
+  display: flex;
+  gap: 0.8rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.upcoming-key-field {
+  min-width: 230px;
+  max-width: 280px;
+}
+
+.upcoming-key-field span {
+  font-size: 0.78rem;
+  color: rgba(238, 244, 251, 0.78);
+}
+
+.upcoming-key-field input {
+  min-height: 40px;
+  padding: 0.65rem 0.75rem;
 }
 
 .upcoming-actions .primary-button {
