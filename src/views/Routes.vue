@@ -6,6 +6,7 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:800
 
 const driverId = ref("");
 const driverName = ref("");
+const routeComment = ref("");
 const routeWeight = ref(0);
 const paradaInput = ref("");
 const paradaInputRef = ref(null);
@@ -34,6 +35,7 @@ const errorMessage = ref("");
 const shareFeedback = ref("");
 const insightsFeedback = ref("");
 const selectedRouteType = ref("closest");
+const reorderMode = ref("drag");
 
 const routeTypeOptions = [
   { value: "closest", label: "Mas cercana" },
@@ -110,6 +112,52 @@ function calculateDistanceKm(fromLocation, toLocation) {
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
   return earthRadiusKm * c;
+}
+
+function moveEditableRoute(fromIndex, toIndex) {
+  const totalStops = editableRoute.value.length;
+
+  if (fromIndex < 0 || fromIndex >= totalStops) {
+    return;
+  }
+
+  const normalizedTargetIndex = Math.max(0, Math.min(totalStops - 1, toIndex));
+
+  if (fromIndex === normalizedTargetIndex) {
+    return;
+  }
+
+  const nextRoute = [...editableRoute.value];
+  const [movedStop] = nextRoute.splice(fromIndex, 1);
+  nextRoute.splice(normalizedTargetIndex, 0, movedStop);
+  editableRoute.value = nextRoute;
+
+  const nextTable = [...routeTable.value];
+  const [movedRow] = nextTable.splice(fromIndex, 1);
+  nextTable.splice(normalizedTargetIndex, 0, movedRow);
+  routeTable.value = nextTable.map((row, index) => ({ ...row, orden: index + 1 }));
+}
+
+function moveStopToTop(index) {
+  moveEditableRoute(index, 0);
+}
+
+function moveStopUp(index) {
+  moveEditableRoute(index, index - 1);
+}
+
+function moveStopDown(index) {
+  moveEditableRoute(index, index + 1);
+}
+
+function moveStopToPosition(index, positionValue) {
+  const normalizedPosition = Number(positionValue);
+
+  if (!Number.isFinite(normalizedPosition)) {
+    return;
+  }
+
+  moveEditableRoute(index, Math.round(normalizedPosition) - 1);
 }
 
 const nearbyClientGroups = computed(() => {
@@ -333,6 +381,89 @@ const routeOptions = computed(() => {
   return [];
 });
 
+function normalizeKm(value) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    return null;
+  }
+
+  return numericValue;
+}
+
+function formatKm(value) {
+  if (!Number.isFinite(value) || value == null || value <= 0) {
+    return "Sin dato";
+  }
+
+  return `${Number(value).toFixed(2)} km`;
+}
+
+function calculateRouteDistancePreview(stops, origin) {
+  const validStops = Array.isArray(stops)
+    ? stops.filter((stop) => Number.isFinite(Number(stop?.location?.latitude))
+      && Number.isFinite(Number(stop?.location?.longitude)))
+    : [];
+
+  if (!validStops.length) {
+    return null;
+  }
+
+  const routePoints = [];
+
+  if (Number.isFinite(Number(origin?.latitude)) && Number.isFinite(Number(origin?.longitude))) {
+    routePoints.push({
+      latitude: Number(origin.latitude),
+      longitude: Number(origin.longitude),
+    });
+  }
+
+  validStops.forEach((stop) => {
+    routePoints.push({
+      latitude: Number(stop.location.latitude),
+      longitude: Number(stop.location.longitude),
+    });
+  });
+
+  if (Number.isFinite(Number(origin?.latitude)) && Number.isFinite(Number(origin?.longitude))) {
+    routePoints.push({
+      latitude: Number(origin.latitude),
+      longitude: Number(origin.longitude),
+    });
+  }
+
+  if (routePoints.length < 2) {
+    return null;
+  }
+
+  let totalDistanceKm = 0;
+
+  for (let index = 0; index < routePoints.length - 1; index += 1) {
+    const distanceKm = calculateDistanceKm(routePoints[index], routePoints[index + 1]);
+
+    if (Number.isFinite(distanceKm)) {
+      totalDistanceKm += distanceKm;
+    }
+  }
+
+  return Number(totalDistanceKm.toFixed(2));
+}
+
+const originalRouteDistanceKm = computed(() => normalizeKm(activeRouteOption.value?.estimatedDistanceKm)
+  ?? normalizeKm(serverResponse.value?.totalDistanceKm));
+
+const modifiedRouteDistanceKm = computed(() => calculateRouteDistancePreview(editableRoute.value, activeRouteOrigin.value)
+  ?? normalizeKm(activeRouteOption.value?.estimatedDistanceKm)
+  ?? normalizeKm(serverResponse.value?.totalDistanceKm));
+
+const routeDistanceDeltaKm = computed(() => {
+  if (originalRouteDistanceKm.value == null || modifiedRouteDistanceKm.value == null) {
+    return null;
+  }
+
+  return Number((modifiedRouteDistanceKm.value - originalRouteDistanceKm.value).toFixed(2));
+});
+
 const activeRouteOption = computed(() => {
   if (!routeOptions.value.length) {
     return null;
@@ -381,25 +512,25 @@ const clientLinkEntries = computed(() =>
 );
 
 function onDragStart(e, idx) {
+  if (reorderMode.value !== "drag") {
+    return;
+  }
+
   draggedIndex.value = idx;
   e.dataTransfer.effectAllowed = "move";
 }
 
 function onDrop(e, targetIdx) {
+  if (reorderMode.value !== "drag") {
+    return;
+  }
+
   e.preventDefault();
   const from = draggedIndex.value;
   draggedIndex.value = null;
   if (from === null || from === targetIdx) return;
 
-  const route = [...editableRoute.value];
-  const [moved] = route.splice(from, 1);
-  route.splice(targetIdx, 0, moved);
-  editableRoute.value = route;
-
-  const table = [...routeTable.value];
-  const [movedRow] = table.splice(from, 1);
-  table.splice(targetIdx, 0, movedRow);
-  routeTable.value = table.map((row, i) => ({ ...row, orden: i + 1 }));
+  moveEditableRoute(from, targetIdx);
 }
 
 function onDragEnd() {
@@ -419,6 +550,10 @@ const shareMessage = computed(() => {
   }
 
   return lines.join("\n");
+});
+
+watch(reorderMode, () => {
+  draggedIndex.value = null;
 });
 
 watch(
@@ -686,6 +821,7 @@ async function makeRoute() {
       body: JSON.stringify({
         driverId: driverId.value.trim(),
         driverName: driverName.value.trim(),
+        routeComment: routeComment.value.trim(),
         routeType: selectedRouteType.value,
         routeWeight: Number(routeWeight.value) || 0,
         anchorClientId: anchorClientId.value.trim() || undefined,
@@ -740,6 +876,15 @@ async function makeRoute() {
           <div class="field-group">
             <label for="driverName">Nombre del chofer</label>
             <input id="driverName" v-model="driverName" type="text" placeholder="Opcional" />
+          </div>
+          <div class="field-group field-group-wide">
+            <label for="routeComment">Comentario de la ruta</label>
+            <textarea
+              id="routeComment"
+              v-model="routeComment"
+              rows="3"
+              placeholder="Agrega una observacion, instruccion o nota para esta ruta"
+            />
           </div>
           <div class="field-group field-group-wide">
             <label>Folio de la ruta</label>
@@ -938,59 +1083,141 @@ async function makeRoute() {
           </div>
         </div>
 
-        <div v-if="serverResponse.savedRoute || activeRouteOption?.openRouteLink || activeRouteOption?.googleMapsRouteLinks?.length" class="routes-card share-card">
-          <div class="driver-table-header">
-            <div>
-              <strong>Datos para enviar al chofer</strong>
-              <p class="share-copy">Copia el nombre del cliente con su link desde aqui, sin usar la consola.</p>
+        <div
+          v-if="serverResponse.savedRoute || activeRouteOption?.openRouteLink || activeRouteOption?.googleMapsRouteLinks?.length"
+          class="routes-result-grid"
+        >
+          <div class="routes-card share-card">
+            <div class="driver-table-header">
+              <div>
+                <strong>Datos para enviar al chofer</strong>
+                <p class="share-copy">Copia el nombre del cliente con su link desde aqui, sin usar la consola.</p>
+              </div>
+              <button class="copy-button" type="button" @click="copyText(shareMessage, 'Mensaje copiado para compartir con el chofer.')">
+                Copiar mensaje completo
+              </button>
             </div>
-            <button class="copy-button" type="button" @click="copyText(shareMessage, 'Mensaje copiado para compartir con el chofer.')">
-              Copiar mensaje completo
-            </button>
-          </div>
 
-          <div class="share-fields">
-            <div v-if="clientLinkEntries.length" class="share-list">
-              <p class="reorder-hint">Arrastra para cambiar el orden antes de copiar.</p>
-              <article
-                v-for="(entry, idx) in clientLinkEntries"
-                :key="entry.id || entry.link"
-                class="share-list-item"
-                :class="{ 'share-item-dragging': draggedIndex === idx }"
-                draggable="true"
-                @dragstart="onDragStart($event, idx)"
-                @dragover.prevent
-                @drop="onDrop($event, idx)"
-                @dragend="onDragEnd"
+            <div class="reorder-mode-switch" role="group" aria-label="Metodo para ordenar clientes">
+              <button
+                class="reorder-mode-btn"
+                :class="{ 'reorder-mode-btn-active': reorderMode === 'drag' }"
+                type="button"
+                @click="reorderMode = 'drag'"
               >
-                <span class="drag-handle" title="Arrastra para reordenar">⠿</span>
-                <div class="entry-info">
-                  <strong>{{ entry.nombre }}</strong>
-                  <p>{{ entry.link }}</p>
-                </div>
-                <button class="copy-button copy-button-inline" type="button" @click="copyText(entry.text, `${entry.nombre} copiado.`)">
-                  Copiar
-                </button>
+                Arrastrar
+              </button>
+              <button
+                class="reorder-mode-btn"
+                :class="{ 'reorder-mode-btn-active': reorderMode === 'arrows' }"
+                type="button"
+                @click="reorderMode = 'arrows'"
+              >
+                Flechas
+              </button>
+              <button
+                class="reorder-mode-btn"
+                :class="{ 'reorder-mode-btn-active': reorderMode === 'position' }"
+                type="button"
+                @click="reorderMode = 'position'"
+              >
+                Posicion #
+              </button>
+            </div>
+
+            <div class="distance-summary-grid">
+              <article class="distance-summary-item">
+                <span>Km ruta original</span>
+                <strong>{{ formatKm(originalRouteDistanceKm) }}</strong>
+              </article>
+              <article class="distance-summary-item">
+                <span>Km ruta modificada</span>
+                <strong>{{ formatKm(modifiedRouteDistanceKm) }}</strong>
+              </article>
+              <article class="distance-summary-item">
+                <span>Diferencia</span>
+                <strong :class="routeDistanceDeltaKm > 0 ? 'distance-up' : (routeDistanceDeltaKm < 0 ? 'distance-down' : '')">
+                  {{ routeDistanceDeltaKm == null ? 'Sin dato' : `${routeDistanceDeltaKm > 0 ? '+' : ''}${routeDistanceDeltaKm.toFixed(2)} km` }}
+                </strong>
               </article>
             </div>
 
-            <label v-if="driverRouteLink" class="field-group field-group-full">
-              <span>Link directo de Mi ruta</span>
-              <div class="copy-row copy-row-stacked">
-                <textarea :value="driverRouteLink" rows="2" readonly />
-                <button class="copy-button copy-button-inline" type="button" @click="copyText(driverRouteLink, 'Link de Mi ruta copiado.')">
-                  Copiar link
-                </button>
+            <div class="share-fields">
+              <div v-if="clientLinkEntries.length" class="share-list">
+                <p class="reorder-hint">Arrastra para cambiar el orden antes de copiar.</p>
+                <article
+                  v-for="(entry, idx) in clientLinkEntries"
+                  :key="entry.id || entry.link"
+                  class="share-list-item"
+                  :class="{ 'share-item-dragging': draggedIndex === idx }"
+                  :draggable="reorderMode === 'drag'"
+                  @dragstart="onDragStart($event, idx)"
+                  @dragover.prevent="reorderMode === 'drag'"
+                  @drop="onDrop($event, idx)"
+                  @dragend="onDragEnd"
+                >
+                  <template v-if="reorderMode === 'drag'">
+                    <span class="drag-handle" title="Arrastra para reordenar">⠿</span>
+                  </template>
+                  <template v-else-if="reorderMode === 'arrows'">
+                    <div class="reorder-buttons-group">
+                      <button class="reorder-step-btn" type="button" :disabled="idx === 0" @click="moveStopToTop(idx)">1°</button>
+                      <button class="reorder-step-btn" type="button" :disabled="idx === 0" @click="moveStopUp(idx)">↑</button>
+                      <button class="reorder-step-btn" type="button" :disabled="idx === editableRoute.length - 1" @click="moveStopDown(idx)">↓</button>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <label class="reorder-position-input" :for="`pos-${entry.id || idx}`">
+                      <span>#</span>
+                      <input
+                        :id="`pos-${entry.id || idx}`"
+                        type="number"
+                        min="1"
+                        :max="editableRoute.length"
+                        :value="idx + 1"
+                        @change="moveStopToPosition(idx, $event.target.value)"
+                        @keyup.enter="moveStopToPosition(idx, $event.target.value)"
+                      />
+                    </label>
+                  </template>
+                  <div class="entry-info">
+                    <strong>{{ entry.nombre }}</strong>
+                    <p>{{ entry.link }}</p>
+                  </div>
+                  <button class="copy-button copy-button-inline" type="button" @click="copyText(entry.text, `${entry.nombre} copiado.`)">
+                    Copiar
+                  </button>
+                </article>
               </div>
-            </label>
 
-            <label class="field-group field-group-full">
-              <span>Mensaje listo para compartir</span>
-              <textarea :value="shareMessage" rows="6" readonly />
-            </label>
+              <label v-if="driverRouteLink" class="field-group field-group-full">
+                <span>Link directo de Mi ruta</span>
+                <div class="copy-row copy-row-stacked">
+                  <textarea :value="driverRouteLink" rows="2" readonly />
+                  <button class="copy-button copy-button-inline" type="button" @click="copyText(driverRouteLink, 'Link de Mi ruta copiado.')">
+                    Copiar link
+                  </button>
+                </div>
+              </label>
+
+              <label class="field-group field-group-full">
+                <span>Mensaje listo para compartir</span>
+                <textarea :value="shareMessage" rows="6" readonly />
+              </label>
+            </div>
+
+            <p v-if="shareFeedback" class="share-feedback">{{ shareFeedback }}</p>
           </div>
 
-          <p v-if="shareFeedback" class="share-feedback">{{ shareFeedback }}</p>
+          <div v-if="activeRouteMapStops.length" class="routes-card map-card">
+            <RouteOsmMap
+              title="Mapa OSM de la ruta"
+              description="Las paradas se muestran numeradas sobre OpenStreetMap para revisarlas mejor también en teléfono."
+              :stops="activeRouteMapStops"
+              :origin="activeRouteOrigin"
+              canvasMinHeight="clamp(620px, 78vh, 1040px)"
+            />
+          </div>
         </div>
 
         <div class="routes-card">
@@ -1024,16 +1251,6 @@ async function makeRoute() {
         </el-table-column>
             </el-table>
           </div>
-        </div>
-
-        <div v-if="activeRouteMapStops.length" class="routes-card">
-          <RouteOsmMap
-            title="Mapa OSM de la ruta"
-            description="Las paradas se muestran numeradas sobre OpenStreetMap para revisarlas mejor también en teléfono."
-            :stops="activeRouteMapStops"
-            :origin="activeRouteOrigin"
-            canvasMinHeight="clamp(460px, 62vh, 760px)"
-          />
         </div>
 
         <div
@@ -1289,6 +1506,7 @@ async function makeRoute() {
 
 .field-group input,
 .field-group select,
+.field-group textarea,
 .route-input {
   width: 100%;
   min-height: 44px;
@@ -1297,6 +1515,11 @@ async function makeRoute() {
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.96);
   color: #1f2937;
+}
+
+.field-group textarea {
+  resize: vertical;
+  min-height: 96px;
 }
 
 .generated-route-reference {
@@ -1329,6 +1552,23 @@ async function makeRoute() {
   display: grid;
   gap: 1rem;
   margin-top: 1rem;
+}
+
+.routes-result-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(460px, 1.35fr);
+  gap: 1rem;
+  align-items: start;
+  margin-top: 1rem;
+}
+
+.routes-result-grid .share-card,
+.routes-result-grid .map-card {
+  margin-top: 0;
+}
+
+.routes-result-grid .map-card {
+  min-height: 100%;
 }
 
 .summary-strip {
@@ -1385,6 +1625,66 @@ async function makeRoute() {
   color: rgba(243, 246, 251, 0.72);
 }
 
+.reorder-mode-switch {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 1rem;
+  padding: 0.35rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(159, 209, 255, 0.16);
+}
+
+.reorder-mode-btn {
+  min-height: 36px;
+  padding: 0.45rem 0.8rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(243, 246, 251, 0.82);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.reorder-mode-btn-active {
+  background: linear-gradient(135deg, #45a7ff 0%, #1dd3b0 100%);
+  color: #08111f;
+}
+
+.distance-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.distance-summary-item {
+  padding: 0.75rem 0.85rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(159, 209, 255, 0.14);
+  display: grid;
+  gap: 0.35rem;
+}
+
+.distance-summary-item span {
+  color: rgba(243, 246, 251, 0.68);
+  font-size: 0.8rem;
+}
+
+.distance-summary-item strong {
+  color: #f3f6fb;
+}
+
+.distance-up {
+  color: #f8ca5b;
+}
+
+.distance-down {
+  color: #8df0b4;
+}
+
 .share-fields {
   display: grid;
   gap: 0.9rem;
@@ -1410,6 +1710,53 @@ async function makeRoute() {
   margin: 0.3rem 0 0;
   color: rgba(243, 246, 251, 0.72);
   word-break: break-word;
+}
+
+.reorder-buttons-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.reorder-step-btn {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0.35rem 0.45rem;
+  border-radius: 10px;
+  border: 1px solid rgba(159, 209, 255, 0.22);
+  background: rgba(255, 255, 255, 0.05);
+  color: #f3f6fb;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.reorder-step-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.reorder-position-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  padding: 0.3rem 0.45rem;
+  border-radius: 10px;
+  border: 1px solid rgba(159, 209, 255, 0.22);
+  background: rgba(255, 255, 255, 0.05);
+  color: #f3f6fb;
+  font-weight: 700;
+}
+
+.reorder-position-input input {
+  width: 66px;
+  min-height: 34px;
+  padding: 0.2rem 0.4rem;
+  border-radius: 8px;
+  border: 1px solid rgba(159, 209, 255, 0.22);
+  background: rgba(255, 255, 255, 0.96);
+  color: #1f2937;
 }
 
 .copy-row {
@@ -1457,6 +1804,16 @@ async function makeRoute() {
 .route-options-card {
   display: grid;
   gap: 1rem;
+}
+
+@media (max-width: 980px) {
+  .routes-result-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .distance-summary-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .route-option-grid {

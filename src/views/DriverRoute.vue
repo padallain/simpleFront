@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import RouteOsmMap from "../components/RouteOsmMap.vue";
 import { fetchSession, getAuthState } from "../services/auth";
@@ -21,9 +21,17 @@ const issueForms = reactive({});
 const editingRoute = ref(false);
 const editableStops = ref([]);
 const priorityStopClientId = ref("");
+const reorderMode = ref("drag");
 const routeActionLoading = ref("");
 const draggedStopIndex = ref(-1);
 const dragOverStopIndex = ref(-1);
+const previewDistanceKm = ref(null);
+const previewDistanceLoading = ref(false);
+const previewDistanceError = ref("");
+const shareFeedback = ref("");
+
+let previewDistanceTimer = null;
+let previewDistanceRequestSeq = 0;
 
 const activeRouteCount = computed(() => assignedRoutes.value.filter((route) => route?.status === "active").length);
 
@@ -54,7 +62,6 @@ const importantRouteFacts = computed(() => {
     { label: "Estado actual", value: routeData.value.status || "Sin estado" },
     { label: "Recorrido estimado", value: routeDistanceText.value },
     { label: "Paradas pendientes", value: String(pendingStopsCount.value) },
-    { label: "Clientes no encontrados", value: String(routeData.value.missingClients?.length || 0) },
     { label: "Modificada por chofer", value: routeData.value.wasDriverModified ? "Si" : "No" },
     {
       label: "Ultima actualizacion",
@@ -68,7 +75,9 @@ const routeMapLinks = computed(() =>
 );
 
 const routeMapStops = computed(() =>
-  Array.isArray(routeData.value?.stops) ? routeData.value.stops : [],
+  editingRoute.value
+    ? editableStops.value
+    : (Array.isArray(routeData.value?.stops) ? routeData.value.stops : []),
 );
 
 const routeDistanceText = computed(() => {
@@ -80,6 +89,158 @@ const routeDistanceText = computed(() => {
 
   return `${totalDistanceKm.toFixed(2)} km`;
 });
+
+const originalRouteDistanceKm = computed(() => {
+  const original = Number(routeData.value?.originalTotalDistanceKm);
+
+  if (Number.isFinite(original) && original > 0) {
+    return original;
+  }
+
+  const current = Number(routeData.value?.totalDistanceKm);
+  return Number.isFinite(current) && current > 0 ? current : null;
+});
+
+const driverModifiedRouteDistanceKm = computed(() => {
+  if (editingRoute.value && Number.isFinite(previewDistanceKm.value) && previewDistanceKm.value > 0) {
+    return previewDistanceKm.value;
+  }
+
+  const modified = Number(routeData.value?.totalDistanceKm);
+  return Number.isFinite(modified) && modified > 0 ? modified : null;
+});
+
+const routeDistanceDeltaKm = computed(() => {
+  if (originalRouteDistanceKm.value == null || driverModifiedRouteDistanceKm.value == null) {
+    return null;
+  }
+
+  return Number((driverModifiedRouteDistanceKm.value - originalRouteDistanceKm.value).toFixed(2));
+});
+
+const shareStops = computed(() => {
+  if (editingRoute.value && editableStops.value.length) {
+    return editableStops.value;
+  }
+
+  return Array.isArray(routeData.value?.stops) ? routeData.value.stops : [];
+});
+
+const shareClientEntries = computed(() =>
+  shareStops.value
+    .filter((stop) => stop?.nombre && stop?.googleMapsLink)
+    .map((stop, index) => ({
+      id: stop.clientId || `${index}`,
+      text: `${index + 1}. ${stop.nombre}, ${stop.googleMapsLink}`,
+    })),
+);
+
+const shareMessage = computed(() => {
+  if (!routeData.value) {
+    return "";
+  }
+
+  const lines = [
+    `Ruta: ${routeData.value.routeLabel || "Sin folio"}`,
+    `Chofer: ${routeData.value.driverName || routeData.value.driverId || "Sin asignar"}`,
+    `Km originales: ${formatKm(originalRouteDistanceKm.value)}`,
+    `Km actuales: ${formatKm(driverModifiedRouteDistanceKm.value)}`,
+    `Diferencia: ${routeDistanceDeltaKm.value == null ? "Sin dato" : `${routeDistanceDeltaKm.value > 0 ? "+" : ""}${routeDistanceDeltaKm.value.toFixed(2)} km`}`,
+    "",
+    "Orden de clientes:",
+  ];
+
+  if (!shareClientEntries.value.length) {
+    lines.push("Sin links disponibles para compartir.");
+    return lines.join("\n");
+  }
+
+  shareClientEntries.value.forEach((entry) => {
+    lines.push(entry.text);
+  });
+
+  return lines.join("\n");
+});
+
+function formatKm(value) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "Sin dato";
+  }
+
+  return `${value.toFixed(2)} km`;
+}
+
+function resetPreviewDistanceState() {
+  previewDistanceKm.value = null;
+  previewDistanceLoading.value = false;
+  previewDistanceError.value = "";
+}
+
+function clearPreviewDistanceTimer() {
+  if (previewDistanceTimer) {
+    clearTimeout(previewDistanceTimer);
+    previewDistanceTimer = null;
+  }
+}
+
+async function fetchPreviewDistance() {
+  if (!editingRoute.value || !routeData.value?._id || editableStops.value.length === 0) {
+    return;
+  }
+
+  const requestSeq = ++previewDistanceRequestSeq;
+  previewDistanceLoading.value = true;
+  previewDistanceError.value = "";
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/driver-routes/${routeData.value._id}/customize/preview`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        stops: editableStops.value.map((stop) => ({ clientId: stop.clientId })),
+      }),
+    });
+    const result = await response.json().catch(() => null);
+
+    if (requestSeq !== previewDistanceRequestSeq) {
+      return;
+    }
+
+    if (!response.ok) {
+      previewDistanceError.value = result?.message || "No se pudo calcular el preview de km.";
+      previewDistanceKm.value = null;
+      return;
+    }
+
+    const nextKm = Number(result?.preview?.totalDistanceKm);
+    previewDistanceKm.value = Number.isFinite(nextKm) && nextKm > 0 ? nextKm : null;
+  } catch (error) {
+    if (requestSeq !== previewDistanceRequestSeq) {
+      return;
+    }
+
+    previewDistanceError.value = `Error calculando preview: ${error.message}`;
+    previewDistanceKm.value = null;
+  } finally {
+    if (requestSeq === previewDistanceRequestSeq) {
+      previewDistanceLoading.value = false;
+    }
+  }
+}
+
+function schedulePreviewDistance() {
+  clearPreviewDistanceTimer();
+
+  if (!editingRoute.value || editableStops.value.length === 0) {
+    return;
+  }
+
+  previewDistanceTimer = setTimeout(() => {
+    fetchPreviewDistance();
+  }, 260);
+}
 
 function cloneStops(stops) {
   return Array.isArray(stops)
@@ -111,6 +272,9 @@ function resetRouteUiState() {
   editingRoute.value = false;
   editableStops.value = [];
   priorityStopClientId.value = "";
+  clearPreviewDistanceTimer();
+  resetPreviewDistanceState();
+  shareFeedback.value = "";
   Object.keys(openIssueForms).forEach((key) => {
     delete openIssueForms[key];
   });
@@ -168,6 +332,8 @@ function startRouteEditing() {
   editingRoute.value = true;
   errorMessage.value = "";
   feedback.value = "";
+  previewDistanceError.value = "";
+  schedulePreviewDistance();
 }
 
 function cancelRouteEditing() {
@@ -176,6 +342,23 @@ function cancelRouteEditing() {
   priorityStopClientId.value = "";
   draggedStopIndex.value = -1;
   dragOverStopIndex.value = -1;
+  clearPreviewDistanceTimer();
+  resetPreviewDistanceState();
+  shareFeedback.value = "";
+}
+
+async function copyShareMessage() {
+  if (!shareMessage.value || typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+    shareFeedback.value = "No se pudo copiar el mensaje en este navegador.";
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(shareMessage.value);
+    shareFeedback.value = "Mensaje copiado. Ya puedes enviarlo al chofer.";
+  } catch {
+    shareFeedback.value = "No se pudo copiar el mensaje.";
+  }
 }
 
 function togglePriorityStop(clientId) {
@@ -229,6 +412,49 @@ function normalizeEditableStopOrder(stops) {
   }));
 }
 
+function moveEditableStop(fromIndex, toIndex) {
+  const totalStops = editableStops.value.length;
+
+  if (fromIndex < 0 || fromIndex >= totalStops) {
+    return;
+  }
+
+  const clampedTargetIndex = Math.max(0, Math.min(totalStops - 1, toIndex));
+
+  if (fromIndex === clampedTargetIndex) {
+    return;
+  }
+
+  const nextStops = [...editableStops.value];
+  const [movedStop] = nextStops.splice(fromIndex, 1);
+  nextStops.splice(clampedTargetIndex, 0, movedStop);
+  editableStops.value = normalizeEditableStopOrder(nextStops);
+  draggedStopIndex.value = -1;
+  dragOverStopIndex.value = -1;
+}
+
+function moveStopToTop(index) {
+  moveEditableStop(index, 0);
+}
+
+function moveStopUp(index) {
+  moveEditableStop(index, index - 1);
+}
+
+function moveStopDown(index) {
+  moveEditableStop(index, index + 1);
+}
+
+function moveStopToPosition(index, targetPosition) {
+  const parsedPosition = Number(targetPosition);
+
+  if (!Number.isFinite(parsedPosition)) {
+    return;
+  }
+
+  moveEditableStop(index, Math.round(parsedPosition) - 1);
+}
+
 function startStopDrag(index) {
   draggedStopIndex.value = index;
   dragOverStopIndex.value = index;
@@ -249,12 +475,7 @@ function handleStopDrop(index) {
     return;
   }
 
-  const nextStops = [...editableStops.value];
-  const [draggedStop] = nextStops.splice(draggedStopIndex.value, 1);
-  nextStops.splice(index, 0, draggedStop);
-  editableStops.value = normalizeEditableStopOrder(nextStops);
-  draggedStopIndex.value = -1;
-  dragOverStopIndex.value = -1;
+  moveEditableStop(draggedStopIndex.value, index);
 }
 
 function endStopDrag() {
@@ -290,6 +511,7 @@ async function saveRouteCustomization() {
 
     syncRouteCollection(result?.route || routeData.value);
     feedback.value = "La ruta personalizada se guardo correctamente para este chofer.";
+    shareFeedback.value = "Ruta guardada. Puedes copiar el mensaje para el chofer.";
   } catch (error) {
     errorMessage.value = `Error guardando personalizacion: ${error.message}`;
   } finally {
@@ -318,6 +540,7 @@ async function restoreOriginalRoute() {
     }
 
     syncRouteCollection(result?.route || routeData.value);
+    resetRouteUiState();
     feedback.value = "La ruta recomendada por el sistema fue restaurada.";
   } catch (error) {
     errorMessage.value = `Error restaurando ruta: ${error.message}`;
@@ -516,45 +739,6 @@ async function updateDispatch(stop, dispatched) {
   }
 }
 
-async function resolveMissingClient(item, resolved) {
-  if (!routeData.value?._id) {
-    return;
-  }
-
-  updatingKey.value = `missing:${item.clientId}`;
-  errorMessage.value = "";
-  feedback.value = "";
-
-  try {
-    const response = await fetch(`${API_BASE_URL}/driver-routes/${routeData.value._id}/missing/${item.clientId}/resolve`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ resolved }),
-    });
-    const result = await response.json().catch(() => null);
-
-    if (!response.ok) {
-      errorMessage.value = result?.message || "No se pudo actualizar el cliente no encontrado.";
-      return;
-    }
-
-    syncRouteCollection(result?.route || routeData.value);
-    feedback.value = resolved
-      ? `Cliente no encontrado ${item.clientId} marcado como resuelto.`
-      : `Cliente no encontrado ${item.clientId} marcado como pendiente.`;
-  } catch (error) {
-    errorMessage.value = `Error actualizando cliente no encontrado: ${error.message}`;
-  } finally {
-    updatingKey.value = "";
-  }
-}
-
-function openClientRegistration(clientId) {
-  window.open(`/?clientId=${encodeURIComponent(clientId)}`, "_blank", "noopener,noreferrer");
-}
-
 function openRouteIssueSummary() {
   if (!routeData.value?._id) {
     return;
@@ -705,6 +889,30 @@ onMounted(async () => {
   driverId.value = nextDriverId;
   loadDriverRoute();
 });
+
+watch(
+  () => editingRoute.value,
+  (isEditing) => {
+    if (!isEditing) {
+      clearPreviewDistanceTimer();
+      resetPreviewDistanceState();
+      return;
+    }
+
+    schedulePreviewDistance();
+  },
+);
+
+watch(
+  () => editableStops.value.map((stop) => String(stop?.clientId || "")).join("|"),
+  () => {
+    if (!editingRoute.value) {
+      return;
+    }
+
+    schedulePreviewDistance();
+  },
+);
 </script>
 
 <template>
@@ -825,101 +1033,195 @@ onMounted(async () => {
         </div>
 
         <div class="driver-card map-card">
-          <RouteOsmMap
-            title="Mapa OSM de la ruta"
-            description="Aquí sí se muestran las paradas con su orden dentro del teléfono, sin depender del visor externo."
-            :stops="routeMapStops"
-            :canvas-min-height="640"
-          />
-        </div>
-
-        <div class="driver-card editor-card">
-          <div class="section-heading">
-            <strong>Modificar orden de la ruta</strong>
-            <span>Puedes mover las paradas y guardar tu version o volver a la ruta recomendada por el sistema.</span>
-          </div>
-
-          <div v-if="editingRoute" class="editor-panel">
-            <p class="editor-help">
-              Mantén presionada una parada, arrástrala y suéltala en la posición que quieras.
-            </p>
-            <div class="editor-mirror-controls">
-              <button class="ghost-button" type="button" @click="applyMirroredRouteOrder">
-                Aplicar espejo
-              </button>
-              <span class="editor-priority-note">
-                {{ priorityStopClientId ? `Prioridad: ${priorityStopClientId}` : "Sin prioridad fija" }}
-              </span>
+          <div class="map-editor-layout">
+            <div class="map-pane">
+              <RouteOsmMap
+                title="Mapa OSM de la ruta"
+                :description="editingRoute
+                  ? 'Vista previa en vivo: al mover el orden de clientes, el mapa se actualiza de inmediato.'
+                  : 'Aquí sí se muestran las paradas con su orden dentro del teléfono, sin depender del visor externo.'"
+                :stops="routeMapStops"
+                :canvas-min-height="640"
+              />
             </div>
-            <div class="editable-stops-list">
-              <article
-                v-for="(stop, index) in editableStops"
-                :key="`edit-${stop.clientId}`"
-                class="editable-stop-item"
-                :class="{
-                  'editable-stop-item-dragging': draggedStopIndex === index,
-                  'editable-stop-item-target': dragOverStopIndex === index && draggedStopIndex !== index,
-                }"
-                draggable="true"
-                @dragstart="startStopDrag(index)"
-                @dragover.prevent="handleStopDragOver(index)"
-                @drop.prevent="handleStopDrop(index)"
-                @dragend="endStopDrag"
-              >
-                <div>
-                  <strong>{{ index + 1 }}. {{ stop.nombre }}</strong>
-                  <p>ID {{ stop.clientId }}</p>
-                </div>
-                <div class="editable-stop-actions">
-                  <button
-                    class="priority-star-btn"
-                    :class="{ 'priority-star-btn-active': priorityStopClientId === String(stop.clientId) }"
-                    type="button"
-                    :title="priorityStopClientId === String(stop.clientId) ? 'Quitar prioridad' : 'Marcar prioridad para espejo'"
-                    @click="togglePriorityStop(stop.clientId)"
-                  >
-                    {{ priorityStopClientId === String(stop.clientId) ? "★" : "☆" }}
+
+            <div class="editor-pane">
+              <div class="section-heading">
+                <strong>Modificar orden de la ruta</strong>
+                <span>Puedes mover las paradas y guardar tu version o volver a la ruta recomendada por el sistema.</span>
+              </div>
+
+              <div class="distance-compare-grid">
+                <article class="distance-compare-item">
+                  <span>Ruta original</span>
+                  <strong>{{ formatKm(originalRouteDistanceKm) }}</strong>
+                </article>
+                <article class="distance-compare-item">
+                  <span>Ruta por modificacion del chofer</span>
+                  <strong>{{ formatKm(driverModifiedRouteDistanceKm) }}</strong>
+                  <small v-if="editingRoute && previewDistanceLoading" class="distance-preview-note">Calculando preview...</small>
+                  <small v-else-if="editingRoute && previewDistanceKm != null" class="distance-preview-note">Preview sin guardar</small>
+                </article>
+                <article class="distance-compare-item">
+                  <span>Diferencia</span>
+                  <strong :class="routeDistanceDeltaKm > 0 ? 'distance-up' : (routeDistanceDeltaKm < 0 ? 'distance-down' : '')">
+                    {{ routeDistanceDeltaKm == null ? "Sin dato" : `${routeDistanceDeltaKm > 0 ? '+' : ''}${routeDistanceDeltaKm.toFixed(2)} km` }}
+                  </strong>
+                  <small v-if="editingRoute && previewDistanceError" class="distance-preview-error">{{ previewDistanceError }}</small>
+                </article>
+              </div>
+
+              <div v-if="editingRoute" class="editor-panel">
+                <p class="editor-help">
+                  Mantén presionada una parada, arrástrala y suéltala en la posición que quieras.
+                </p>
+                <div class="editor-mirror-controls">
+                  <button class="ghost-button" type="button" @click="applyMirroredRouteOrder">
+                    Aplicar espejo
                   </button>
-                  <span class="drag-handle">Arrastrar</span>
+                  <div class="reorder-mode-switch" role="group" aria-label="Modo de reordenamiento">
+                    <button
+                      class="reorder-mode-btn"
+                      :class="{ 'reorder-mode-btn-active': reorderMode === 'drag' }"
+                      type="button"
+                      @click="reorderMode = 'drag'"
+                    >
+                      Arrastrar
+                    </button>
+                    <button
+                      class="reorder-mode-btn"
+                      :class="{ 'reorder-mode-btn-active': reorderMode === 'arrows' }"
+                      type="button"
+                      @click="reorderMode = 'arrows'"
+                    >
+                      Flechas
+                    </button>
+                    <button
+                      class="reorder-mode-btn"
+                      :class="{ 'reorder-mode-btn-active': reorderMode === 'position' }"
+                      type="button"
+                      @click="reorderMode = 'position'"
+                    >
+                      Posicion #
+                    </button>
+                  </div>
+                  <span class="editor-priority-note">
+                    {{ priorityStopClientId ? `Prioridad: ${priorityStopClientId}` : "Sin prioridad fija" }}
+                  </span>
                 </div>
-              </article>
-            </div>
+                <div class="editable-stops-list">
+                  <article
+                    v-for="(stop, index) in editableStops"
+                    :key="`edit-${stop.clientId}`"
+                    class="editable-stop-item"
+                    :class="{
+                      'editable-stop-item-draggable': reorderMode === 'drag',
+                      'editable-stop-item-dragging': draggedStopIndex === index,
+                      'editable-stop-item-target': dragOverStopIndex === index && draggedStopIndex !== index,
+                    }"
+                    :draggable="reorderMode === 'drag'"
+                    @dragstart="startStopDrag(index)"
+                    @dragover.prevent="handleStopDragOver(index)"
+                    @drop.prevent="handleStopDrop(index)"
+                    @dragend="endStopDrag"
+                  >
+                    <div>
+                      <strong>{{ index + 1 }}. {{ stop.nombre }}</strong>
+                      <p>ID {{ stop.clientId }}</p>
+                    </div>
+                    <div class="editable-stop-actions">
+                      <button
+                        class="priority-star-btn"
+                        :class="{ 'priority-star-btn-active': priorityStopClientId === String(stop.clientId) }"
+                        type="button"
+                        :title="priorityStopClientId === String(stop.clientId) ? 'Quitar prioridad' : 'Marcar prioridad para espejo'"
+                        @click="togglePriorityStop(stop.clientId)"
+                      >
+                        {{ priorityStopClientId === String(stop.clientId) ? "★" : "☆" }}
+                      </button>
+                      <template v-if="reorderMode === 'drag'">
+                        <span class="drag-handle">Arrastrar</span>
+                      </template>
+                      <template v-else-if="reorderMode === 'arrows'">
+                        <button
+                          class="reorder-btn"
+                          type="button"
+                          title="Mover al inicio"
+                          :disabled="index === 0"
+                          @click="moveStopToTop(index)"
+                        >
+                          1°
+                        </button>
+                        <button
+                          class="reorder-btn"
+                          type="button"
+                          title="Subir una posicion"
+                          :disabled="index === 0"
+                          @click="moveStopUp(index)"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          class="reorder-btn"
+                          type="button"
+                          title="Bajar una posicion"
+                          :disabled="index === editableStops.length - 1"
+                          @click="moveStopDown(index)"
+                        >
+                          ↓
+                        </button>
+                      </template>
+                      <template v-else>
+                        <label class="reorder-position-input" title="Mover a posicion">
+                          <span>#</span>
+                          <input
+                            type="number"
+                            min="1"
+                            :max="editableStops.length"
+                            :value="index + 1"
+                            @change="moveStopToPosition(index, Number($event.target.value))"
+                            @keyup.enter="moveStopToPosition(index, Number($event.target.value))"
+                          />
+                        </label>
+                      </template>
+                    </div>
+                  </article>
+                </div>
 
-            <div class="editor-actions">
-              <button class="ghost-button" type="button" @click="cancelRouteEditing">
-                Cancelar cambios
-              </button>
-              <button class="secondary-button" type="button" :disabled="routeActionLoading === 'save'" @click="saveRouteCustomization">
-                {{ routeActionLoading === 'save' ? "Guardando..." : "Guardar mi orden" }}
-              </button>
-              <button class="ghost-button" type="button" :disabled="routeActionLoading === 'reset'" @click="restoreOriginalRoute">
-                {{ routeActionLoading === 'reset' ? "Restaurando..." : "Restaurar ruta recomendada" }}
-              </button>
-            </div>
-          </div>
-        </div>
+                <div class="share-message-card">
+                  <div class="share-message-header">
+                    <strong>Mensaje para enviar al chofer</strong>
+                    <button class="secondary-button" type="button" @click="copyShareMessage">
+                      Copiar mensaje
+                    </button>
+                  </div>
+                  <p class="share-message-help">Se arma con el orden actual, incluyendo los km y links de cada cliente.</p>
+                  <pre class="share-message-preview">{{ shareMessage }}</pre>
+                  <p v-if="shareFeedback" class="inline-feedback inline-feedback-success">{{ shareFeedback }}</p>
+                </div>
 
-        <div v-if="routeData.missingClients?.length" class="driver-card missing-card">
-          <strong>Clientes no encontrados</strong>
-          <div class="missing-list">
-            <article v-for="item in routeData.missingClients" :key="item.clientId" class="missing-item">
-              <div>
-                <p><strong>ID:</strong> {{ item.clientId }}</p>
-                <p><strong>Estado:</strong> {{ item.resolved ? "Resuelto" : "Pendiente por registrar" }}</p>
+                <div class="editor-actions">
+                  <button class="ghost-button" type="button" @click="cancelRouteEditing">
+                    Cancelar cambios
+                  </button>
+                  <button class="secondary-button" type="button" :disabled="routeActionLoading === 'save'" @click="saveRouteCustomization">
+                    {{ routeActionLoading === 'save' ? "Guardando..." : "Guardar mi orden" }}
+                  </button>
+                  <button class="ghost-button" type="button" :disabled="routeActionLoading === 'reset'" @click="restoreOriginalRoute">
+                    {{ routeActionLoading === 'reset' ? "Restaurando..." : "Restaurar ruta recomendada" }}
+                  </button>
+                </div>
               </div>
-              <div class="missing-actions">
-                <button class="secondary-button" @click="openClientRegistration(item.clientId)">
-                  Registrar cliente
-                </button>
-                <button
-                  class="ghost-button"
-                  :disabled="updatingKey === `missing:${item.clientId}`"
-                  @click="resolveMissingClient(item, !item.resolved)"
-                >
-                  {{ item.resolved ? "Marcar pendiente" : "Marcar resuelto" }}
-                </button>
+
+              <div v-else class="editor-panel">
+                <p class="editor-help">Activa la edicion para reorganizar clientes desde este mismo bloque del mapa.</p>
+                <div class="editor-actions">
+                  <button class="secondary-button" type="button" @click="startRouteEditing">
+                    Editar orden en este mapa
+                  </button>
+                </div>
               </div>
-            </article>
+            </div>
           </div>
         </div>
 
@@ -1188,9 +1490,72 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 
+.reorder-mode-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem;
+  border-radius: 999px;
+  border: 1px solid rgba(159, 209, 255, 0.22);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.reorder-mode-btn {
+  border: none;
+  min-height: 34px;
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(243, 246, 251, 0.78);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.reorder-mode-btn-active {
+  color: #08111d;
+  background: linear-gradient(135deg, #ffd59a 0%, #ffb34d 100%);
+}
+
 .editor-priority-note {
   color: rgba(243, 246, 251, 0.76);
   font-size: 0.9rem;
+}
+
+.share-message-card {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.95rem;
+  border-radius: 16px;
+  border: 1px solid rgba(159, 209, 255, 0.22);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.share-message-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.share-message-help {
+  margin: 0;
+  color: rgba(243, 246, 251, 0.72);
+  font-size: 0.9rem;
+}
+
+.share-message-preview {
+  margin: 0;
+  padding: 0.8rem;
+  border-radius: 12px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: Consolas, Monaco, "Courier New", monospace;
+  background: rgba(7, 16, 30, 0.76);
+  border: 1px solid rgba(159, 209, 255, 0.2);
+  color: rgba(243, 246, 251, 0.92);
 }
 
 .fact-item,
@@ -1214,12 +1579,75 @@ onMounted(async () => {
 }
 
 .editable-stop-item {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 1rem;
   align-items: center;
-  cursor: grab;
   transition: border-color 0.2s ease, transform 0.2s ease, background 0.2s ease;
+}
+
+.editable-stop-item-draggable {
+  cursor: grab;
+}
+
+.editable-stop-item > div:first-child {
+  min-width: 0;
+}
+
+.editable-stop-item > div:first-child strong,
+.editable-stop-item > div:first-child p {
+  overflow-wrap: anywhere;
+}
+
+.editable-stop-actions {
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.reorder-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  min-height: 36px;
+  padding: 0.45rem 0.6rem;
+  border-radius: 10px;
+  border: 1px solid rgba(159, 209, 255, 0.28);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(243, 246, 251, 0.88);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.reorder-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.reorder-position-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 36px;
+  padding: 0.2rem 0.3rem 0.2rem 0.55rem;
+  border-radius: 10px;
+  border: 1px solid rgba(159, 209, 255, 0.28);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(243, 246, 251, 0.88);
+  font-weight: 700;
+}
+
+.reorder-position-input input {
+  width: 68px;
+  min-height: 30px;
+  padding: 0.2rem 0.45rem;
+  border-radius: 8px;
+  border: 1px solid rgba(159, 209, 255, 0.24);
+  background: rgba(255, 255, 255, 0.96);
+  color: #1f2937;
 }
 
 .editable-stop-item-dragging {
@@ -1289,6 +1717,26 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 0.85rem;
+  max-height: min(46vh, 420px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 0.25rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(159, 209, 255, 0.45) rgba(255, 255, 255, 0.08);
+}
+
+.route-switcher-grid::-webkit-scrollbar {
+  width: 8px;
+}
+
+.route-switcher-grid::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+}
+
+.route-switcher-grid::-webkit-scrollbar-thumb {
+  background: rgba(159, 209, 255, 0.45);
+  border-radius: 999px;
 }
 
 .route-switcher-item {
@@ -1322,6 +1770,72 @@ onMounted(async () => {
   width: 100%;
   margin-left: 0;
   transform: none;
+}
+
+.map-editor-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.map-pane,
+.editor-pane {
+  min-width: 0;
+}
+
+.editor-pane {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.distance-compare-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.distance-compare-item {
+  padding: 0.75rem 0.8rem;
+  border-radius: 12px;
+  border: 1px solid rgba(159, 209, 255, 0.16);
+  background: rgba(255, 255, 255, 0.03);
+  display: grid;
+  gap: 0.35rem;
+}
+
+.distance-compare-item span {
+  font-size: 0.8rem;
+  color: rgba(243, 246, 251, 0.66);
+}
+
+.distance-compare-item strong {
+  font-size: 0.98rem;
+}
+
+.distance-preview-note {
+  font-size: 0.76rem;
+  color: rgba(243, 246, 251, 0.68);
+}
+
+.distance-preview-error {
+  font-size: 0.76rem;
+  color: #ffb4b4;
+}
+
+.distance-up {
+  color: #fbbf24;
+}
+
+.distance-down {
+  color: #8df0b4;
+}
+
+.editor-pane .editable-stops-list {
+  max-height: 460px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 0.25rem;
 }
 
 .missing-item,
@@ -1464,6 +1978,22 @@ onMounted(async () => {
   .route-switcher-grid,
   .issue-grid {
     grid-template-columns: 1fr;
+  }
+
+  .map-editor-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .distance-compare-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .editor-pane .editable-stops-list {
+    max-height: 340px;
+  }
+
+  .route-switcher-grid {
+    max-height: min(38vh, 340px);
   }
 
   .driver-button,

@@ -863,7 +863,11 @@ const goToAdminUsers = () => {
 <style scoped>
 /* ── Base ─────────────────────────────────────────── */
 .home-page {
-  min-height: 100vh;
+  min-height: calc(100vh - 56px);
+  height: calc(100vh - 56px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
   padding: 2rem 1rem 3rem;
   background:
     radial-gradient(circle at top left, rgba(87, 140, 255, 0.18), transparent 34%),
