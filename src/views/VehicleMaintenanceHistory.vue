@@ -260,18 +260,10 @@ async function completeUpcomingMaintenance(record) {
   feedbackMessage.value = "";
 
   try {
-    const payload = normalizePayload({
-      ...record,
-      estado: "completado",
-      fechaServicio: new Date().toISOString().slice(0, 10),
-      fechaProximoServicio: record?.fechaProximoServicio ? String(record.fechaProximoServicio).slice(0, 10) : "",
-      items: Array.isArray(record?.items) ? record.items : [],
-    });
-    const result = await updateVehicleMaintenanceById(recordId, payload, normalizedAdminKey);
-
+    await deleteVehicleMaintenanceById(recordId, normalizedAdminKey);
     upcomingMaintenance.value = upcomingMaintenance.value.filter((item) => item._id !== recordId);
-    upsertMaintenanceRecord(result.maintenance);
-    feedbackMessage.value = `Mantenimiento de ${result.maintenance?.placa || record.placa} marcado como completado.`;
+    maintenanceRecords.value = maintenanceRecords.value.filter((item) => item._id !== recordId);
+    feedbackMessage.value = `Mantenimiento de ${record.placa || "la unidad"} completado y eliminado.`;
   } catch (error) {
     errorMessage.value = error.message;
   } finally {

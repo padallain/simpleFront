@@ -9,6 +9,7 @@ import {
   removeQueuedClients,
 } from "../services/offlineClientQueue";
 import { fetchSession, getAuthState } from "../services/auth";
+import { fetchUpcomingVehicleMaintenance } from "../services/vehicleMaintenanceApi";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 const route = useRoute();
@@ -54,6 +55,115 @@ const isFetchingClient = ref(false);
 const isSyncingPending = ref(false);
 const pendingClientCount = ref(0);
 const isOnline = ref(typeof navigator === "undefined" ? true : navigator.onLine);
+const maintenanceSchedule = ref([]);
+const selectedMaintenanceDate = ref("");
+const isLoadingMaintenance = ref(false);
+const maintenanceScheduleError = ref("");
+const maintenanceTodoTitle = ref("");
+const maintenanceTodoDate = ref("");
+const maintenanceTodoError = ref("");
+const maintenanceTodoList = ref([]);
+
+const todayDateKey = getDateKeyFromValue(new Date());
+
+const maintenanceCalendarDays = computed(() => {
+  const days = [];
+  const groupedByDate = groupMaintenanceByDate(maintenanceSchedule.value);
+
+  for (let index = 0; index < 7; index += 1) {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() + index);
+    const dateKey = getDateKeyFromValue(date);
+    const tasks = groupedByDate[dateKey] || [];
+
+    days.push({
+      dateKey,
+      dayLabel: new Intl.DateTimeFormat("es-MX", { weekday: "short" }).format(date).replace(".", ""),
+      dayNumber: String(date.getDate()).padStart(2, "0"),
+      taskCount: tasks.length,
+      hasOverdueTask: tasks.some((task) => Boolean(task?.isOverdue)),
+    });
+  }
+
+  return days;
+});
+
+const selectedMaintenanceTasks = computed(() => {
+  const groupedByDate = groupMaintenanceByDate(maintenanceSchedule.value);
+  return groupedByDate[selectedMaintenanceDate.value] || [];
+});
+
+const selectedDateTodos = computed(() => {
+  if (!selectedMaintenanceDate.value) {
+    return [];
+  }
+
+  return maintenanceTodoList.value.filter((item) => item.dateKey === selectedMaintenanceDate.value);
+});
+
+const pendingTodoCount = computed(() => maintenanceTodoList.value.filter((item) => !item.done).length);
+const overdueTodoCount = computed(() => maintenanceTodoList.value.filter((item) => !item.done && item.dateKey < todayDateKey).length);
+const todayTodoCount = computed(() => maintenanceTodoList.value.filter((item) => !item.done && item.dateKey === todayDateKey).length);
+
+const maintenanceTodoCalendarDays = computed(() => {
+  const groupedTodos = maintenanceTodoList.value.reduce((accumulator, item) => {
+    if (!item?.dateKey) {
+      return accumulator;
+    }
+
+    if (!accumulator[item.dateKey]) {
+      accumulator[item.dateKey] = [];
+    }
+
+    accumulator[item.dateKey].push(item);
+    return accumulator;
+  }, {});
+
+  const days = [];
+
+  for (let index = 0; index < 7; index += 1) {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() + index);
+    const dateKey = getDateKeyFromValue(date);
+    const todosForDay = groupedTodos[dateKey] || [];
+
+    days.push({
+      dateKey,
+      dayLabel: new Intl.DateTimeFormat("es-MX", { weekday: "short" }).format(date).replace(".", ""),
+      dayNumber: String(date.getDate()).padStart(2, "0"),
+      totalCount: todosForDay.length,
+      completedCount: todosForDay.filter((todo) => Boolean(todo.done)).length,
+    });
+  }
+
+  return days;
+});
+
+const pendingMaintenanceCount = computed(() => maintenanceSchedule.value.length);
+const overdueMaintenanceCount = computed(() => maintenanceSchedule.value.filter((task) => Boolean(task?.isOverdue)).length);
+const todayMaintenanceCount = computed(() => (
+  maintenanceSchedule.value.filter((task) => getDateKeyFromValue(task?.fechaProximoServicio) === todayDateKey).length
+));
+
+const selectedMaintenanceDateLabel = computed(() => {
+  if (!selectedMaintenanceDate.value) {
+    return "Pendientes";
+  }
+
+  const parsed = new Date(`${selectedMaintenanceDate.value}T00:00:00`);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return "Pendientes";
+  }
+
+  return new Intl.DateTimeFormat("es-MX", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+  }).format(parsed);
+});
 
 const BACKEND_MESSAGE_MAP = {
   "All fields are required": "Completa todos los campos antes de guardar el cliente.",
@@ -139,6 +249,201 @@ async function parseJsonResponse(response) {
 
 function refreshPendingClientCount() {
   pendingClientCount.value = getPendingClientCount();
+}
+
+function getDateKeyFromValue(value) {
+  const parsedDate = value instanceof Date ? value : new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "";
+  }
+
+  const year = parsedDate.getFullYear();
+  const month = String(parsedDate.getMonth() + 1).padStart(2, "0");
+  const day = String(parsedDate.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function groupMaintenanceByDate(records) {
+  return records.reduce((accumulator, record) => {
+    const dateKey = getDateKeyFromValue(record?.fechaProximoServicio);
+
+    if (!dateKey) {
+      return accumulator;
+    }
+
+    if (!accumulator[dateKey]) {
+      accumulator[dateKey] = [];
+    }
+
+    accumulator[dateKey].push(record);
+    return accumulator;
+  }, {});
+}
+
+function formatMaintenanceDate(value) {
+  if (!value) {
+    return "Sin fecha";
+  }
+
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Sin fecha";
+  }
+
+  return parsedDate.toLocaleDateString("es-MX", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function formatMaintenanceStatus(record) {
+  const daysUntilService = Number(record?.daysUntilService);
+
+  if (!Number.isFinite(daysUntilService)) {
+    return "Fecha pendiente";
+  }
+
+  if (daysUntilService < 0) {
+    return `Atrasado ${Math.abs(daysUntilService)} dia(s)`;
+  }
+
+  if (daysUntilService === 0) {
+    return "Se atiende hoy";
+  }
+
+  return `Faltan ${daysUntilService} dia(s)`;
+}
+
+function formatTodoDateLabel(dateKey) {
+  if (!dateKey) {
+    return "Sin fecha";
+  }
+
+  const parsedDate = new Date(`${dateKey}T00:00:00`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Sin fecha";
+  }
+
+  return parsedDate.toLocaleDateString("es-MX", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function selectMaintenanceDate(dateKey) {
+  selectedMaintenanceDate.value = dateKey;
+
+  if (dateKey) {
+    maintenanceTodoDate.value = dateKey;
+  }
+}
+
+function getMaintenanceTodoStorageKey() {
+  const userId = String(
+    authUser.value?._id
+    || authUser.value?.id
+    || authUser.value?.email
+    || "admin",
+  );
+  return `makeroute-maintenance-todo-${userId}`;
+}
+
+function saveMaintenanceTodos() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(getMaintenanceTodoStorageKey(), JSON.stringify(maintenanceTodoList.value));
+}
+
+function loadMaintenanceTodos() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const storedValue = window.localStorage.getItem(getMaintenanceTodoStorageKey());
+
+  if (!storedValue) {
+    maintenanceTodoList.value = [];
+    return;
+  }
+
+  try {
+    const parsedValue = JSON.parse(storedValue);
+    maintenanceTodoList.value = Array.isArray(parsedValue)
+      ? parsedValue.filter((item) => item && item.id && item.title && item.dateKey)
+      : [];
+  } catch (_error) {
+    maintenanceTodoList.value = [];
+  }
+}
+
+function addMaintenanceTodo() {
+  const title = maintenanceTodoTitle.value.trim();
+  const dateKey = maintenanceTodoDate.value || selectedMaintenanceDate.value || todayDateKey;
+
+  if (!title) {
+    maintenanceTodoError.value = "Escribe una tarea antes de agregar.";
+    return;
+  }
+
+  if (!dateKey) {
+    maintenanceTodoError.value = "Selecciona una fecha para la tarea.";
+    return;
+  }
+
+  maintenanceTodoList.value = [
+    {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      title,
+      dateKey,
+      done: false,
+      createdAt: new Date().toISOString(),
+    },
+    ...maintenanceTodoList.value,
+  ];
+
+  maintenanceTodoTitle.value = "";
+  maintenanceTodoDate.value = dateKey;
+  maintenanceTodoError.value = "";
+  saveMaintenanceTodos();
+}
+
+function toggleMaintenanceTodo(todoId) {
+  maintenanceTodoList.value = maintenanceTodoList.value.map((item) => (
+    item.id === todoId ? { ...item, done: !item.done } : item
+  ));
+  saveMaintenanceTodos();
+}
+
+function deleteMaintenanceTodo(todoId) {
+  maintenanceTodoList.value = maintenanceTodoList.value.filter((item) => item.id !== todoId);
+  saveMaintenanceTodos();
+}
+
+async function loadMaintenanceAgenda() {
+  isLoadingMaintenance.value = true;
+  maintenanceScheduleError.value = "";
+
+  try {
+    const result = await fetchUpcomingVehicleMaintenance(30);
+    maintenanceSchedule.value = Array.isArray(result?.mantenimientos) ? result.mantenimientos : [];
+
+    if (!selectedMaintenanceDate.value) {
+      selectedMaintenanceDate.value = todayDateKey;
+      maintenanceTodoDate.value = todayDateKey;
+    }
+  } catch (error) {
+    maintenanceSchedule.value = [];
+    maintenanceScheduleError.value = error?.message || "No se pudo cargar la agenda de mantenimiento.";
+  } finally {
+    isLoadingMaintenance.value = false;
+  }
 }
 
 function resetClientForm() {
@@ -357,6 +662,15 @@ onMounted(async () => {
   try {
     const sessionState = await fetchSession({ force: true });
     authUser.value = sessionState.user || null;
+
+    if (isAdminUser.value) {
+      loadMaintenanceAgenda();
+      loadMaintenanceTodos();
+
+      if (!maintenanceTodoDate.value) {
+        maintenanceTodoDate.value = selectedMaintenanceDate.value || todayDateKey;
+      }
+    }
   } catch (_error) {
     authUser.value = null;
   }
@@ -562,6 +876,10 @@ const goToWarehousePicking = () => {
   router.push('/warehouse-picking');
 };
 
+const goToVehicleMaintenance = () => {
+  router.push('/vehicle-maintenance-history');
+};
+
 const goToAdminUsers = () => {
   router.push('/admin-users');
 };
@@ -607,6 +925,146 @@ const goToAdminUsers = () => {
           <span class="stat-label">{{ isOnline ? 'En línea' : 'Sin conexión' }}</span>
         </div>
       </div>
+
+      <div v-if="isAdminUser" class="admin-agenda-row">
+        <section class="maintenance-agenda" aria-label="Agenda de mantenimiento">
+          <div class="maintenance-agenda-header">
+            <div>
+              <p class="agenda-eyebrow">Tareas pendientes</p>
+              <h2>Agenda de mantenimiento</h2>
+              <p class="agenda-copy">Al entrar puedes revisar de inmediato que unidades necesitan atencion.</p>
+            </div>
+            <div class="agenda-actions">
+              <button class="btn btn-secondary" type="button" :disabled="isLoadingMaintenance" @click="loadMaintenanceAgenda">
+                {{ isLoadingMaintenance ? "Actualizando..." : "Actualizar agenda" }}
+              </button>
+              <button class="btn btn-save" type="button" @click="goToVehicleMaintenance">Abrir mantenimiento</button>
+            </div>
+          </div>
+
+          <div class="agenda-stat-grid">
+            <article class="agenda-stat-item">
+              <strong>{{ pendingMaintenanceCount }}</strong>
+              <span>Total pendientes</span>
+            </article>
+            <article class="agenda-stat-item agenda-stat-alert">
+              <strong>{{ overdueMaintenanceCount }}</strong>
+              <span>Atrasados</span>
+            </article>
+            <article class="agenda-stat-item">
+              <strong>{{ todayMaintenanceCount }}</strong>
+              <span>Para hoy</span>
+            </article>
+          </div>
+
+          <p v-if="maintenanceScheduleError" class="agenda-error">{{ maintenanceScheduleError }}</p>
+
+          <div class="agenda-calendar-strip">
+            <button
+              v-for="day in maintenanceCalendarDays"
+              :key="day.dateKey"
+              class="calendar-day"
+              :class="{
+                'calendar-day-active': selectedMaintenanceDate === day.dateKey,
+                'calendar-day-has-overdue': day.hasOverdueTask,
+              }"
+              type="button"
+              @click="selectMaintenanceDate(day.dateKey)"
+            >
+              <span class="calendar-day-label">{{ day.dayLabel }}</span>
+              <span class="calendar-day-number">{{ day.dayNumber }}</span>
+              <span class="calendar-day-count">{{ day.taskCount }}</span>
+            </button>
+          </div>
+
+          <div class="agenda-task-list">
+            <h3>{{ selectedMaintenanceDateLabel }}</h3>
+            <p v-if="isLoadingMaintenance" class="agenda-empty">Cargando mantenimientos pendientes...</p>
+            <p v-else-if="!selectedMaintenanceTasks.length" class="agenda-empty">No hay tareas pendientes para este dia.</p>
+            <article v-for="task in selectedMaintenanceTasks" :key="task._id || `${task.placa}-${task.fechaProximoServicio}`" class="agenda-task-card">
+              <div>
+                <p class="agenda-task-title">{{ task.titulo || "Mantenimiento" }}</p>
+                <p class="agenda-task-meta">
+                  <strong>{{ task.placa || "Sin placa" }}</strong>
+                  <span>{{ task.tipoServicio || "Servicio" }}</span>
+                  <span>{{ formatMaintenanceDate(task.fechaProximoServicio) }}</span>
+                </p>
+              </div>
+              <span class="agenda-task-status" :class="task.isOverdue ? 'agenda-task-status-alert' : ''">
+                {{ formatMaintenanceStatus(task) }}
+              </span>
+            </article>
+          </div>
+        </section>
+
+          <div class="agenda-todo-panel" aria-label="Tareas pendientes">
+            <h3 class="agenda-todo-title">Tareas pendientes</h3>
+            <p class="agenda-todo-copy">Agrega recordatorios manuales para la fecha seleccionada.</p>
+
+            <div class="agenda-stat-grid agenda-todo-stat-grid">
+              <article class="agenda-stat-item">
+                <strong>{{ pendingTodoCount }}</strong>
+                <span>Total pendientes</span>
+              </article>
+              <article class="agenda-stat-item agenda-stat-alert">
+                <strong>{{ overdueTodoCount }}</strong>
+                <span>Atrasados</span>
+              </article>
+              <article class="agenda-stat-item">
+                <strong>{{ todayTodoCount }}</strong>
+                <span>Para hoy</span>
+              </article>
+            </div>
+
+            <div class="agenda-todo-form">
+              <input
+                v-model="maintenanceTodoTitle"
+                type="text"
+                maxlength="90"
+                placeholder="Ej. Comprar filtro de aceite"
+              />
+              <input
+                v-model="maintenanceTodoDate"
+                type="date"
+              />
+              <button class="btn btn-save" type="button" @click="addMaintenanceTodo">Agregar</button>
+            </div>
+
+            <p v-if="maintenanceTodoError" class="agenda-error">{{ maintenanceTodoError }}</p>
+
+            <div class="agenda-todo-calendar-strip">
+              <button
+                v-for="day in maintenanceTodoCalendarDays"
+                :key="`todo-${day.dateKey}`"
+                class="calendar-day todo-calendar-day"
+                :class="{
+                  'calendar-day-active': selectedMaintenanceDate === day.dateKey,
+                }"
+                type="button"
+                @click="selectMaintenanceDate(day.dateKey)"
+              >
+                <span class="calendar-day-label">{{ day.dayLabel }}</span>
+                <span class="calendar-day-number">{{ day.dayNumber }}</span>
+                <span class="calendar-day-count">{{ day.totalCount }}</span>
+                <span class="todo-day-progress" v-if="day.totalCount > 0">{{ day.completedCount }}/{{ day.totalCount }}</span>
+              </button>
+            </div>
+
+            <div class="agenda-todo-list">
+              <p v-if="!selectedDateTodos.length" class="agenda-empty">No hay to-dos para este dia.</p>
+              <article v-for="todo in selectedDateTodos" :key="todo.id" class="agenda-todo-item agenda-todo-card">
+                <div class="agenda-todo-main">
+                  <label class="agenda-todo-check">
+                    <input type="checkbox" :checked="todo.done" @change="toggleMaintenanceTodo(todo.id)" />
+                    <span :class="todo.done ? 'agenda-todo-done' : ''">{{ todo.title }}</span>
+                  </label>
+                  <span class="agenda-todo-date">{{ formatTodoDateLabel(todo.dateKey) }}</span>
+                </div>
+                <button class="agenda-todo-delete" type="button" @click="deleteMaintenanceTodo(todo.id)">Quitar</button>
+              </article>
+            </div>
+          </div>
+        </div>
 
       <!-- ── Module navigation ──────────────────────── -->
       <nav class="modules-grid" aria-label="Módulos del sistema">
@@ -1009,6 +1467,348 @@ const goToAdminUsers = () => {
 .status-offline {
   background: #f87171;
   box-shadow: 0 0 8px rgba(248, 113, 113, 0.5);
+}
+
+/* ── Maintenance agenda ───────────────────────────── */
+.admin-agenda-row {
+  margin-bottom: 1.25rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+  align-items: stretch;
+}
+
+.maintenance-agenda {
+  padding: 1.2rem;
+  border-radius: 24px;
+  background: rgba(10, 20, 36, 0.74);
+  border: 1px solid rgba(159, 209, 255, 0.14);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22);
+  text-align: left;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.maintenance-agenda-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.agenda-eyebrow {
+  margin: 0;
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(159, 209, 255, 0.75);
+}
+
+.maintenance-agenda h2 {
+  margin: 0.28rem 0 0;
+  color: #f3f6fb;
+  font-size: 1.28rem;
+}
+
+.agenda-copy {
+  margin: 0.45rem 0 0;
+  color: rgba(243, 246, 251, 0.58);
+  font-size: 0.88rem;
+}
+
+.agenda-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.agenda-stat-grid {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.agenda-stat-item {
+  border-radius: 14px;
+  padding: 0.75rem 0.8rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(159, 209, 255, 0.14);
+  display: grid;
+  gap: 0.2rem;
+}
+
+.agenda-stat-item strong {
+  color: #f3f6fb;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.agenda-stat-item span {
+  color: rgba(243, 246, 251, 0.62);
+  font-size: 0.78rem;
+}
+
+.agenda-stat-alert {
+  border-color: rgba(248, 113, 113, 0.38);
+  background: rgba(86, 26, 26, 0.35);
+}
+
+.agenda-error {
+  margin: 0.9rem 0 0;
+  color: #ffb4b4;
+  font-size: 0.87rem;
+}
+
+.agenda-calendar-strip {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.calendar-day {
+  border-radius: 12px;
+  border: 1px solid rgba(159, 209, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(243, 246, 251, 0.82);
+  min-height: 82px;
+  display: grid;
+  place-content: center;
+  gap: 0.1rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.18s, background 0.18s, transform 0.12s;
+}
+
+.calendar-day:hover {
+  border-color: rgba(159, 209, 255, 0.36);
+  background: rgba(69, 167, 255, 0.11);
+}
+
+.calendar-day:active {
+  transform: scale(0.98);
+}
+
+.calendar-day-label {
+  text-transform: capitalize;
+  font-size: 0.73rem;
+}
+
+.calendar-day-number {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.calendar-day-count {
+  display: inline-flex;
+  justify-content: center;
+  min-width: 20px;
+  padding: 0.1rem 0.35rem;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 0.7rem;
+  font-weight: 600;
+  margin: 0 auto;
+}
+
+.calendar-day-active {
+  border-color: rgba(96, 165, 250, 0.8);
+  background: rgba(69, 167, 255, 0.24);
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.48);
+}
+
+.calendar-day-has-overdue {
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+.agenda-task-list {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.agenda-task-list h3 {
+  margin: 0;
+  color: #f3f6fb;
+  font-size: 0.95rem;
+  text-transform: capitalize;
+}
+
+.agenda-empty {
+  margin: 0;
+  color: rgba(243, 246, 251, 0.6);
+  font-size: 0.85rem;
+}
+
+.agenda-task-card {
+  border-radius: 14px;
+  border: 1px solid rgba(159, 209, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.72rem 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.agenda-task-title {
+  margin: 0;
+  color: #f3f6fb;
+  font-size: 0.9rem;
+}
+
+.agenda-task-meta {
+  margin: 0.3rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  color: rgba(243, 246, 251, 0.56);
+  font-size: 0.78rem;
+}
+
+.agenda-task-meta strong {
+  color: rgba(243, 246, 251, 0.82);
+}
+
+.agenda-task-status {
+  flex-shrink: 0;
+  padding: 0.3rem 0.58rem;
+  border-radius: 100px;
+  font-size: 0.74rem;
+  color: #8df0b4;
+  background: rgba(22, 52, 36, 0.42);
+  border: 1px solid rgba(42, 181, 125, 0.3);
+}
+
+.agenda-task-status-alert {
+  color: #ffb4b4;
+  background: rgba(86, 26, 26, 0.42);
+  border-color: rgba(248, 113, 113, 0.34);
+}
+
+.agenda-todo-panel {
+  border-radius: 16px;
+  padding: 0.85rem;
+  border: 1px solid rgba(159, 209, 255, 0.16);
+  background: rgba(255, 255, 255, 0.03);
+  display: grid;
+  gap: 0.72rem;
+  height: 100%;
+  align-content: start;
+  text-align: left;
+}
+
+.agenda-todo-stat-grid {
+  margin-top: 0;
+}
+
+.agenda-todo-title {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #f3f6fb;
+}
+
+.agenda-todo-copy {
+  margin: 0;
+  font-size: 0.8rem;
+  color: rgba(243, 246, 251, 0.56);
+}
+
+.agenda-todo-form {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.agenda-todo-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.agenda-todo-calendar-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.todo-calendar-day {
+  min-height: 92px;
+}
+
+.todo-day-progress {
+  font-size: 0.66rem;
+  color: rgba(243, 246, 251, 0.62);
+}
+
+.agenda-todo-item {
+  border-radius: 12px;
+  border: 1px solid rgba(159, 209, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.5rem 0.6rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.45rem;
+}
+
+.agenda-todo-card {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.agenda-todo-main {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.agenda-todo-check {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 0.48rem;
+  color: #f3f6fb;
+  font-size: 0.82rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.agenda-todo-check input {
+  margin-top: 0.12rem;
+  align-self: start;
+}
+
+.agenda-todo-check span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.agenda-todo-done {
+  text-decoration: line-through;
+  color: rgba(243, 246, 251, 0.46);
+}
+
+.agenda-todo-date {
+  font-size: 0.72rem;
+  color: rgba(243, 246, 251, 0.54);
+  margin-left: 1.5rem;
+}
+
+.agenda-todo-delete {
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  background: rgba(86, 26, 26, 0.38);
+  color: #ffb4b4;
+  min-height: auto;
+  border-radius: 9px;
+  padding: 0.26rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  margin-left: auto;
+}
+
+.agenda-todo-delete:hover {
+  background: rgba(86, 26, 26, 0.56);
 }
 
 /* ── Module navigation ────────────────────────────── */
@@ -1531,6 +2331,41 @@ button {
 
   .modules-grid {
     grid-template-columns: 1fr;
+  }
+
+  .admin-agenda-row {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .maintenance-agenda,
+  .agenda-todo-panel {
+    height: auto;
+  }
+
+  .maintenance-agenda-header {
+    flex-direction: column;
+  }
+
+  .agenda-actions {
+    width: 100%;
+  }
+
+  .agenda-actions .btn {
+    flex: 1;
+  }
+
+  .agenda-stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .agenda-calendar-strip {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .agenda-task-card {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .module-card-wide {
