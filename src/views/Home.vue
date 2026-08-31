@@ -57,6 +57,7 @@ const pendingClientCount = ref(0);
 const isOnline = ref(typeof navigator === "undefined" ? true : navigator.onLine);
 const maintenanceSchedule = ref([]);
 const selectedMaintenanceDate = ref("");
+const todoViewMode = ref("date");
 const isLoadingMaintenance = ref(false);
 const maintenanceScheduleError = ref("");
 const maintenanceTodoTitle = ref("");
@@ -105,6 +106,10 @@ const selectedDateTodos = computed(() => {
 const pendingTodoCount = computed(() => maintenanceTodoList.value.filter((item) => !item.done).length);
 const overdueTodoCount = computed(() => maintenanceTodoList.value.filter((item) => !item.done && item.dateKey < todayDateKey).length);
 const todayTodoCount = computed(() => maintenanceTodoList.value.filter((item) => !item.done && item.dateKey === todayDateKey).length);
+const overdueTodos = computed(() => maintenanceTodoList.value
+  .filter((item) => !item.done && item.dateKey < todayDateKey)
+  .sort((leftItem, rightItem) => String(leftItem.dateKey).localeCompare(String(rightItem.dateKey))));
+const visibleTodos = computed(() => (todoViewMode.value === "overdue" ? overdueTodos.value : selectedDateTodos.value));
 
 const maintenanceTodoCalendarDays = computed(() => {
   const groupedTodos = maintenanceTodoList.value.reduce((accumulator, item) => {
@@ -336,11 +341,16 @@ function formatTodoDateLabel(dateKey) {
 }
 
 function selectMaintenanceDate(dateKey) {
+  todoViewMode.value = "date";
   selectedMaintenanceDate.value = dateKey;
 
   if (dateKey) {
     maintenanceTodoDate.value = dateKey;
   }
+}
+
+function showOverdueTodos() {
+  todoViewMode.value = "overdue";
 }
 
 function getMaintenanceTodoStorageKey() {
@@ -1006,10 +1016,15 @@ const goToAdminUsers = () => {
                 <strong>{{ pendingTodoCount }}</strong>
                 <span>Total pendientes</span>
               </article>
-              <article class="agenda-stat-item agenda-stat-alert">
+              <button
+                class="agenda-stat-item agenda-stat-alert agenda-stat-item-button"
+                :class="{ 'agenda-stat-item-active': todoViewMode === 'overdue' }"
+                type="button"
+                @click="showOverdueTodos"
+              >
                 <strong>{{ overdueTodoCount }}</strong>
                 <span>Atrasados</span>
-              </article>
+              </button>
               <article class="agenda-stat-item">
                 <strong>{{ todayTodoCount }}</strong>
                 <span>Para hoy</span>
@@ -1051,8 +1066,13 @@ const goToAdminUsers = () => {
             </div>
 
             <div class="agenda-todo-list">
-              <p v-if="!selectedDateTodos.length" class="agenda-empty">No hay to-dos para este dia.</p>
-              <article v-for="todo in selectedDateTodos" :key="todo.id" class="agenda-todo-item agenda-todo-card">
+              <h4 class="agenda-todo-list-title">
+                {{ todoViewMode === "overdue" ? "To-dos atrasados" : `To-dos del ${selectedMaintenanceDateLabel}` }}
+              </h4>
+              <p v-if="!visibleTodos.length" class="agenda-empty">
+                {{ todoViewMode === "overdue" ? "No hay to-dos atrasados." : "No hay to-dos para este dia." }}
+              </p>
+              <article v-for="todo in visibleTodos" :key="todo.id" class="agenda-todo-item agenda-todo-card">
                 <div class="agenda-todo-main">
                   <label class="agenda-todo-check">
                     <input type="checkbox" :checked="todo.done" @change="toggleMaintenanceTodo(todo.id)" />
@@ -1726,6 +1746,12 @@ const goToAdminUsers = () => {
   gap: 0.5rem;
 }
 
+.agenda-todo-list-title {
+  margin: 0;
+  font-size: 0.82rem;
+  color: rgba(243, 246, 251, 0.74);
+}
+
 .agenda-todo-calendar-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1754,6 +1780,26 @@ const goToAdminUsers = () => {
 
 .agenda-todo-card {
   background: rgba(255, 255, 255, 0.05);
+}
+
+.agenda-stat-item-button {
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+}
+
+.agenda-stat-item-button:hover {
+  border-color: rgba(248, 113, 113, 0.55);
+}
+
+.agenda-stat-item-button:focus-visible {
+  outline: 2px solid rgba(248, 113, 113, 0.6);
+  outline-offset: 2px;
+}
+
+.agenda-stat-item-active {
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.5) inset;
 }
 
 .agenda-todo-main {
