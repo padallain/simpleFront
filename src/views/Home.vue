@@ -922,6 +922,15 @@ const goToVehicleMaintenance = () => {
   router.push('/vehicle-maintenance-history');
 };
 
+const handleMaintenanceAgendaClick = (event) => {
+  const clickedElement = event?.target;
+  if (clickedElement instanceof Element && clickedElement.closest('button, a, input, select, textarea, label')) {
+    return;
+  }
+
+  goToVehicleMaintenance();
+};
+
 const goToAdminUsers = () => {
   router.push('/admin-users');
 };
@@ -969,7 +978,7 @@ const goToAdminUsers = () => {
       </div>
 
       <div v-if="isAdminUser" class="admin-agenda-row">
-        <section class="maintenance-agenda" aria-label="Agenda de mantenimiento">
+        <section class="maintenance-agenda" aria-label="Agenda de mantenimiento" @click="handleMaintenanceAgendaClick">
           <div class="maintenance-agenda-header">
             <div>
               <p class="agenda-eyebrow">Tareas pendientes</p>

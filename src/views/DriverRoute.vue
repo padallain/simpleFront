@@ -29,6 +29,12 @@ const previewDistanceKm = ref(null);
 const previewDistanceLoading = ref(false);
 const previewDistanceError = ref("");
 const shareFeedback = ref("");
+const addStopClientId = ref("");
+const addStopLoading = ref(false);
+const addStopBranchOptions = ref([]);
+const selectedAddStopBranch = ref("");
+const addStopPendingClientId = ref("");
+const pendingRemovalClientId = ref("");
 
 let previewDistanceTimer = null;
 let previewDistanceRequestSeq = 0;
@@ -359,6 +365,176 @@ async function copyShareMessage() {
   } catch {
     shareFeedback.value = "No se pudo copiar el mensaje.";
   }
+}
+
+async function addClientToRoute() {
+  if (!routeData.value?._id) {
+    errorMessage.value = "No hay una ruta activa para editar.";
+    return;
+  }
+
+  const normalizedClientId = addStopPendingClientId.value || addStopClientId.value.trim();
+
+  if (!normalizedClientId) {
+    errorMessage.value = "Escribe el ID del cliente que quieres agregar.";
+    return;
+  }
+
+  const payload = {
+    clientId: normalizedClientId,
+  };
+
+  if (addStopBranchOptions.value.length > 0) {
+    payload.sucursal = selectedAddStopBranch.value;
+  }
+
+  addStopLoading.value = true;
+  errorMessage.value = "";
+  feedback.value = "";
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/driver-routes/${routeData.value._id}/stops`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      if (response.status === 409 && result?.requiresBranchSelection && Array.isArray(result?.branches) && result.branches.length > 0) {
+        addStopBranchOptions.value = result.branches;
+        selectedAddStopBranch.value = String(result.branches[0]?.sucursal ?? "");
+        addStopPendingClientId.value = normalizedClientId;
+        feedback.value = "Este cliente tiene varias sedes. Elige una para continuar.";
+        return;
+      }
+
+      errorMessage.value = result?.message || "No se pudo agregar el cliente a la ruta.";
+      return;
+    }
+
+    const updatedRoute = result?.route || routeData.value;
+    syncRouteCollection(updatedRoute);
+    editableStops.value = cloneStops(Array.isArray(updatedRoute?.stops) ? updatedRoute.stops : []);
+    addStopClientId.value = "";
+    addStopBranchOptions.value = [];
+    selectedAddStopBranch.value = "";
+    addStopPendingClientId.value = "";
+    feedback.value = `Cliente ${normalizedClientId} agregado a la ruta.`;
+    schedulePreviewDistance();
+  } catch (error) {
+    errorMessage.value = `Error agregando cliente: ${error.message}`;
+  } finally {
+    addStopLoading.value = false;
+  }
+}
+
+async function removeClientFromRoute(clientId) {
+  if (!routeData.value?._id) {
+    errorMessage.value = "No hay una ruta activa para editar.";
+    return;
+  }
+
+  const normalizedClientId = String(clientId || "").trim();
+
+  if (!normalizedClientId) {
+    return;
+  }
+
+  routeActionLoading.value = `remove:${normalizedClientId}`;
+  errorMessage.value = "";
+  feedback.value = "";
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/driver-routes/${routeData.value._id}/stops/${encodeURIComponent(normalizedClientId)}`, {
+      method: "DELETE",
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      errorMessage.value = result?.message || "No se pudo quitar el cliente de la ruta.";
+      return;
+    }
+
+    const updatedRoute = result?.route || routeData.value;
+    syncRouteCollection(updatedRoute);
+    editableStops.value = cloneStops(Array.isArray(updatedRoute?.stops) ? updatedRoute.stops : []);
+
+    if (priorityStopClientId.value === normalizedClientId) {
+      priorityStopClientId.value = String(editableStops.value[0]?.clientId || "").trim();
+    }
+
+    pendingRemovalClientId.value = "";
+    feedback.value = `Cliente ${normalizedClientId} eliminado de la ruta.`;
+    schedulePreviewDistance();
+  } catch (error) {
+    errorMessage.value = `Error quitando cliente: ${error.message}`;
+  } finally {
+    routeActionLoading.value = "";
+  }
+}
+
+function requestStopRemoval(clientId) {
+  const normalizedClientId = String(clientId || "").trim();
+
+  if (!normalizedClientId) {
+    return;
+  }
+
+  pendingRemovalClientId.value = normalizedClientId;
+}
+
+function cancelStopRemoval() {
+  pendingRemovalClientId.value = "";
+}
+
+async function finalizeAndReoptimizeRoute() {
+  if (!routeData.value?._id) {
+    errorMessage.value = "No hay una ruta activa para recalcular.";
+    return;
+  }
+
+  routeActionLoading.value = "optimize";
+  errorMessage.value = "";
+  feedback.value = "";
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/driver-routes/${routeData.value._id}/reoptimize`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      errorMessage.value = result?.message || "No se pudo recalcular la ruta optima.";
+      return;
+    }
+
+    const updatedRoute = result?.route || routeData.value;
+    syncRouteCollection(updatedRoute);
+    editableStops.value = cloneStops(Array.isArray(updatedRoute?.stops) ? updatedRoute.stops : []);
+    previewDistanceKm.value = null;
+    previewDistanceLoading.value = false;
+    previewDistanceError.value = "";
+    addStopBranchOptions.value = [];
+    selectedAddStopBranch.value = "";
+    addStopPendingClientId.value = "";
+    feedback.value = "Ruta recalculada con el orden mas optimo.";
+  } catch (error) {
+    errorMessage.value = `Error recalculando ruta: ${error.message}`;
+  } finally {
+    routeActionLoading.value = "";
+  }
+}
+
+function handleAddStopClientIdInput() {
+  addStopBranchOptions.value = [];
+  selectedAddStopBranch.value = "";
+  addStopPendingClientId.value = "";
 }
 
 function togglePriorityStop(clientId) {
@@ -1075,6 +1251,44 @@ watch(
                 <p class="editor-help">
                   Mantén presionada una parada, arrástrala y suéltala en la posición que quieras.
                 </p>
+                <div class="add-stop-panel">
+                  <strong>Agregar cliente a esta ruta</strong>
+                  <div class="add-stop-grid">
+                    <input
+                      v-model="addStopClientId"
+                      type="text"
+                      placeholder="ID cliente"
+                      @input="handleAddStopClientIdInput"
+                      @keyup.enter="addClientToRoute"
+                    />
+                    <button class="secondary-button" type="button" :disabled="addStopLoading" @click="addClientToRoute">
+                      {{ addStopLoading ? "Agregando..." : "Agregar cliente" }}
+                    </button>
+                  </div>
+                  <button
+                    class="ghost-button add-stop-optimize-button"
+                    type="button"
+                    :disabled="routeActionLoading === 'optimize' || addStopLoading"
+                    @click="finalizeAndReoptimizeRoute"
+                  >
+                    {{ routeActionLoading === "optimize" ? "Recalculando..." : "Finalizar agregados y recalcular ruta optima" }}
+                  </button>
+                  <div v-if="addStopBranchOptions.length" class="add-stop-branch-picker">
+                    <label for="branchSelect">Este ID tiene varias sedes. Elige una:</label>
+                    <select id="branchSelect" v-model="selectedAddStopBranch" :disabled="addStopLoading">
+                      <option
+                        v-for="branch in addStopBranchOptions"
+                        :key="`${branch.sucursal || 'principal'}-${branch.nombre}`"
+                        :value="branch.sucursal"
+                      >
+                        {{ branch.label }}
+                      </option>
+                    </select>
+                    <button class="secondary-button" type="button" :disabled="addStopLoading" @click="addClientToRoute">
+                      {{ addStopLoading ? "Agregando..." : "Agregar sede seleccionada" }}
+                    </button>
+                  </div>
+                </div>
                 <div class="editor-mirror-controls">
                   <button class="ghost-button" type="button" @click="applyMirroredRouteOrder">
                     Aplicar espejo
@@ -1139,6 +1353,16 @@ watch(
                       >
                         {{ priorityStopClientId === String(stop.clientId) ? "★" : "☆" }}
                       </button>
+                      <button
+                        class="remove-stop-btn"
+                        type="button"
+                        :disabled="routeActionLoading === `remove:${stop.clientId}`"
+                        title="Quitar cliente"
+                        aria-label="Quitar cliente"
+                        @click="requestStopRemoval(stop.clientId)"
+                      >
+                        ×
+                      </button>
                       <template v-if="reorderMode === 'drag'">
                         <span class="drag-handle">Arrastrar</span>
                       </template>
@@ -1184,6 +1408,23 @@ watch(
                           />
                         </label>
                       </template>
+                    </div>
+                    <div
+                      v-if="pendingRemovalClientId === String(stop.clientId)"
+                      class="remove-stop-popout"
+                    >
+                      <p>Quitar cliente {{ stop.clientId }} de la ruta?</p>
+                      <div class="remove-stop-popout-actions">
+                        <button class="ghost-button" type="button" @click="cancelStopRemoval">Cancelar</button>
+                        <button
+                          class="remove-stop-confirm-btn"
+                          type="button"
+                          :disabled="routeActionLoading === `remove:${stop.clientId}`"
+                          @click="removeClientFromRoute(stop.clientId)"
+                        >
+                          {{ routeActionLoading === `remove:${stop.clientId}` ? "Quitando..." : "Confirmar" }}
+                        </button>
+                      </div>
                     </div>
                   </article>
                 </div>
@@ -1483,6 +1724,59 @@ watch(
   color: rgba(243, 246, 251, 0.72);
 }
 
+.add-stop-panel {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.85rem;
+  border-radius: 14px;
+  border: 1px solid rgba(159, 209, 255, 0.22);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.add-stop-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.6rem;
+}
+
+.add-stop-grid > * {
+  min-width: 0;
+}
+
+.add-stop-grid input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0.65rem 0.8rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.96);
+  color: #1f2937;
+}
+
+.add-stop-optimize-button {
+  width: 100%;
+}
+
+.add-stop-branch-picker {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.add-stop-branch-picker label {
+  color: rgba(243, 246, 251, 0.78);
+  font-size: 0.9rem;
+}
+
+.add-stop-branch-picker select {
+  width: 100%;
+  min-height: 42px;
+  padding: 0.65rem 0.8rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.96);
+  color: #1f2937;
+}
+
 .editor-mirror-controls {
   display: flex;
   align-items: center;
@@ -1519,6 +1813,7 @@ watch(
 .editor-priority-note {
   color: rgba(243, 246, 251, 0.76);
   font-size: 0.9rem;
+  overflow-wrap: anywhere;
 }
 
 .share-message-card {
@@ -1691,6 +1986,68 @@ watch(
   border-color: rgba(255, 213, 154, 0.55);
   background: rgba(255, 213, 154, 0.16);
   color: #ffe8c3;
+}
+
+.remove-stop-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: 12px;
+  border: 1px solid rgba(248, 113, 113, 0.34);
+  background: rgba(127, 29, 29, 0.24);
+  color: #fecaca;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.remove-stop-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.remove-stop-popout {
+  grid-column: 1 / -1;
+  margin-top: 0.55rem;
+  padding: 0.7rem;
+  border-radius: 12px;
+  border: 1px solid rgba(248, 113, 113, 0.34);
+  background: rgba(127, 29, 29, 0.22);
+  display: grid;
+  gap: 0.55rem;
+}
+
+.remove-stop-popout p {
+  margin: 0;
+  color: #fee2e2;
+  font-size: 0.88rem;
+}
+
+.remove-stop-popout-actions {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.remove-stop-confirm-btn {
+  min-height: 36px;
+  padding: 0.55rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid rgba(252, 165, 165, 0.5);
+  background: rgba(185, 28, 28, 0.35);
+  color: #fee2e2;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.remove-stop-confirm-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
 }
 
 .progress-strip {
@@ -1964,6 +2321,13 @@ watch(
   color: #8df0b4;
 }
 
+@media (max-width: 1320px) {
+  .editable-stop-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+}
+
 @media (max-width: 960px) {
   .summary-header,
   .stop-main,
@@ -1985,6 +2349,10 @@ watch(
   }
 
   .distance-compare-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .add-stop-grid {
     grid-template-columns: 1fr;
   }
 
