@@ -19,6 +19,8 @@ const latestAddedStopKey = ref("");
 let stopHighlightTimer = null;
 let stopKeySequence = 0;
 const anchorClientId = ref("");
+const anchorSucursal = ref("");
+const anchorStopKey = ref("");
 const anchorReason = ref("priority");
 const sedePickerVisible = ref(false);
 const sedePendingId = ref("");
@@ -49,8 +51,26 @@ const anchorReasonOptions = [
   { value: "weight", label: "Mayor peso" },
 ];
 
-function toggleAnchor(clientId) {
-  anchorClientId.value = anchorClientId.value === clientId ? "" : clientId;
+function buildStopKey(stop) {
+  const clientId = String(stop?.parada ?? stop?.clientId ?? "").trim();
+  const sucursal = typeof stop?.sucursal === "string" ? stop.sucursal.trim() : "";
+
+  return sucursal ? `${clientId}|${sucursal}` : clientId;
+}
+
+function toggleAnchor(stop) {
+  const nextKey = buildStopKey(stop);
+
+  if (anchorStopKey.value === nextKey) {
+    anchorClientId.value = "";
+    anchorSucursal.value = "";
+    anchorStopKey.value = "";
+    return;
+  }
+
+  anchorClientId.value = String(stop?.parada ?? stop?.clientId ?? "").trim();
+  anchorSucursal.value = typeof stop?.sucursal === "string" ? stop.sucursal.trim() : "";
+  anchorStopKey.value = nextKey;
 }
 
 const totalWeight = computed(() => Number(routeWeight.value) || 0);
@@ -159,6 +179,7 @@ function moveStopToPosition(index, positionValue) {
 
   moveEditableRoute(index, Math.round(normalizedPosition) - 1);
 }
+
 
 const nearbyClientGroups = computed(() => {
   const stops = Array.isArray(activeRouteOption.value?.route) ? activeRouteOption.value.route : [];
@@ -303,19 +324,23 @@ const anchorStartStatus = computed(() => {
     };
   }
 
-  const firstStopId = String(route[0]?.id || "").trim();
-  const isApplied = firstStopId === anchorClientId.value;
+  const firstStopKey = buildStopKey(route[0]);
+  const anchorStopKeyValue = anchorStopKey.value || buildStopKey({
+    parada: anchorClientId.value,
+    sucursal: anchorSucursal.value,
+  });
+  const isApplied = firstStopKey === anchorStopKeyValue;
 
   if (isApplied) {
     return {
       applied: true,
-      message: `La ruta inicia en el cliente ancla ${anchorClientId.value} (${anchorReasonLabel.value}).`,
+      message: `La ruta inicia en el cliente ancla ${anchorClientId.value}${anchorSucursal.value ? ` · ${anchorSucursal.value}` : ""} (${anchorReasonLabel.value}).`,
     };
   }
 
   return {
     applied: false,
-    message: `El ancla ${anchorClientId.value} no quedo como primera parada en esta opcion. Revisa IDs o genera nuevamente.`,
+    message: `El ancla ${anchorClientId.value}${anchorSucursal.value ? ` · ${anchorSucursal.value}` : ""} no quedo como primera parada en esta opcion. Revisa IDs o genera nuevamente.`,
   };
 });
 
@@ -614,7 +639,7 @@ function markLatestAddedStop(stopKey) {
 function resolveParadaRowClass(row) {
   const classes = [];
 
-  if (row?.parada === anchorClientId.value) {
+  if (buildStopKey(row) === anchorStopKey.value) {
     classes.push("anchor-row");
   }
 
@@ -758,8 +783,10 @@ async function agregarParada() {
 
 function eliminarParada(idx) {
   const removed = paradas.value[idx];
-  if (removed && removed.parada === anchorClientId.value) {
+  if (removed && buildStopKey(removed) === anchorStopKey.value) {
     anchorClientId.value = "";
+    anchorSucursal.value = "";
+    anchorStopKey.value = "";
     anchorReason.value = "priority";
   }
   paradas.value.splice(idx, 1);
@@ -813,6 +840,21 @@ async function makeRoute() {
   shareFeedback.value = "";
 
   try {
+    const selectedStops = (editableRoute.value.length ? editableRoute.value : paradas.value)
+      .map((stop) => {
+        const clientId = String(stop?.id || stop?.parada || "").trim();
+
+        if (!clientId) {
+          return null;
+        }
+
+        return {
+          clientId,
+          ...(stop?.sucursal ? { sucursal: String(stop.sucursal).trim() } : {}),
+        };
+      })
+      .filter(Boolean);
+
     const response = await fetch(`${API_BASE_URL}/makeRoute`, {
       method: "POST",
       headers: {
@@ -825,11 +867,11 @@ async function makeRoute() {
         routeType: selectedRouteType.value,
         routeWeight: Number(routeWeight.value) || 0,
         anchorClientId: anchorClientId.value.trim() || undefined,
+        anchorSucursal: anchorSucursal.value.trim() || undefined,
+        anchorStopKey: anchorStopKey.value.trim() || undefined,
         anchorReason: anchorClientId.value.trim() ? anchorReason.value : undefined,
-        stops: paradas.value.map((stop) => ({
-          clientId: stop.parada,
-          ...(stop.sucursal ? { sucursal: stop.sucursal } : {}),
-        })),
+        preserveRouteOrder: editableRoute.value.length > 0,
+        stops: selectedStops,
       }),
     });
 
@@ -955,7 +997,7 @@ async function makeRoute() {
           </span>
         </div>
         <div v-if="anchorClientId" class="anchor-info-banner">
-          El cliente <strong>{{ anchorClientId }}</strong> sera la primera parada fija. Motivo: <strong>{{ anchorReasonLabel }}</strong>.
+          El cliente <strong>{{ anchorClientId }}</strong>{{ anchorSucursal ? ` · ${anchorSucursal}` : "" }} sera la primera parada fija. Motivo: <strong>{{ anchorReasonLabel }}</strong>.
           La ruta optima se construye desde ahi y el espejo tambien lo respeta.
         </div>
         <div v-if="anchorClientId" class="anchor-controls-row">
@@ -986,12 +1028,12 @@ async function makeRoute() {
               <template #default="scope">
                 <button
                   class="anchor-btn"
-                  :class="{ 'anchor-btn-active': scope.row.parada === anchorClientId }"
+                  :class="{ 'anchor-btn-active': buildStopKey(scope.row) === anchorStopKey }"
                   type="button"
-                  :title="scope.row.parada === anchorClientId ? 'Quitar ancla' : 'Marcar como cliente ancla (primera parada fija)'"
-                  @click="toggleAnchor(scope.row.parada)"
+                  :title="buildStopKey(scope.row) === anchorStopKey ? 'Quitar ancla' : 'Marcar como cliente ancla (primera parada fija)'"
+                  @click="toggleAnchor(scope.row)"
                 >
-                  {{ scope.row.parada === anchorClientId ? '⭐' : '☆' }}
+                  {{ buildStopKey(scope.row) === anchorStopKey ? '⭐' : '☆' }}
                 </button>
               </template>
             </el-table-column>

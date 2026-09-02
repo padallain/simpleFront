@@ -324,8 +324,45 @@ watch(() => route.fullPath, () => {
   }
 
   .top-nav {
+    flex-wrap: wrap;
+    align-items: center;
     gap: 0.75rem;
-    padding: 0 1rem;
+    row-gap: 0.55rem;
+    height: auto;
+    min-height: 56px;
+    padding: 0.55rem 0.85rem;
+  }
+
+  .nav-actions {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .nav-admin-link,
+  .nav-logout {
+    white-space: nowrap;
+  }
+
+  .nav-modules,
+  .nav-back-row {
+    order: 3;
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .nav-modules {
+    padding-bottom: 0.15rem;
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+
+  .nav-chip {
+    padding: 0.34rem 0.72rem;
+    font-size: 0.78rem;
+  }
+
+  .nav-page-title {
+    font-size: 0.82rem;
   }
 }
 </style>

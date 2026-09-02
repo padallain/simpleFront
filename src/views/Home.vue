@@ -57,6 +57,7 @@ const pendingClientCount = ref(0);
 const isOnline = ref(typeof navigator === "undefined" ? true : navigator.onLine);
 const maintenanceSchedule = ref([]);
 const selectedMaintenanceDate = ref("");
+const selectedTodoDate = ref("");
 const todoViewMode = ref("date");
 const isLoadingMaintenance = ref(false);
 const maintenanceScheduleError = ref("");
@@ -96,11 +97,11 @@ const selectedMaintenanceTasks = computed(() => {
 });
 
 const selectedDateTodos = computed(() => {
-  if (!selectedMaintenanceDate.value) {
+  if (!selectedTodoDate.value) {
     return [];
   }
 
-  return maintenanceTodoList.value.filter((item) => item.dateKey === selectedMaintenanceDate.value);
+  return maintenanceTodoList.value.filter((item) => item.dateKey === selectedTodoDate.value);
 });
 
 const pendingTodoCount = computed(() => maintenanceTodoList.value.filter((item) => !item.done).length);
@@ -158,6 +159,24 @@ const selectedMaintenanceDateLabel = computed(() => {
   }
 
   const parsed = new Date(`${selectedMaintenanceDate.value}T00:00:00`);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return "Pendientes";
+  }
+
+  return new Intl.DateTimeFormat("es-MX", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+  }).format(parsed);
+});
+
+const selectedTodoDateLabel = computed(() => {
+  if (!selectedTodoDate.value) {
+    return "Pendientes";
+  }
+
+  const parsed = new Date(`${selectedTodoDate.value}T00:00:00`);
 
   if (Number.isNaN(parsed.getTime())) {
     return "Pendientes";
@@ -341,8 +360,12 @@ function formatTodoDateLabel(dateKey) {
 }
 
 function selectMaintenanceDate(dateKey) {
-  todoViewMode.value = "date";
   selectedMaintenanceDate.value = dateKey;
+}
+
+function selectTodoDate(dateKey) {
+  todoViewMode.value = "date";
+  selectedTodoDate.value = dateKey;
 
   if (dateKey) {
     maintenanceTodoDate.value = dateKey;
@@ -395,7 +418,7 @@ function loadMaintenanceTodos() {
 
 function addMaintenanceTodo() {
   const title = maintenanceTodoTitle.value.trim();
-  const dateKey = maintenanceTodoDate.value || selectedMaintenanceDate.value || todayDateKey;
+  const dateKey = maintenanceTodoDate.value || selectedTodoDate.value || todayDateKey;
 
   if (!title) {
     maintenanceTodoError.value = "Escribe una tarea antes de agregar.";
@@ -420,6 +443,8 @@ function addMaintenanceTodo() {
 
   maintenanceTodoTitle.value = "";
   maintenanceTodoDate.value = dateKey;
+  selectedTodoDate.value = dateKey;
+  todoViewMode.value = "date";
   maintenanceTodoError.value = "";
   saveMaintenanceTodos();
 }
@@ -446,6 +471,13 @@ async function loadMaintenanceAgenda() {
 
     if (!selectedMaintenanceDate.value) {
       selectedMaintenanceDate.value = todayDateKey;
+    }
+
+    if (!selectedTodoDate.value) {
+      selectedTodoDate.value = todayDateKey;
+    }
+
+    if (!maintenanceTodoDate.value) {
       maintenanceTodoDate.value = todayDateKey;
     }
   } catch (error) {
@@ -1053,10 +1085,10 @@ const goToAdminUsers = () => {
                 :key="`todo-${day.dateKey}`"
                 class="calendar-day todo-calendar-day"
                 :class="{
-                  'calendar-day-active': selectedMaintenanceDate === day.dateKey,
+                  'calendar-day-active': selectedTodoDate === day.dateKey,
                 }"
                 type="button"
-                @click="selectMaintenanceDate(day.dateKey)"
+                @click="selectTodoDate(day.dateKey)"
               >
                 <span class="calendar-day-label">{{ day.dayLabel }}</span>
                 <span class="calendar-day-number">{{ day.dayNumber }}</span>
@@ -1067,7 +1099,7 @@ const goToAdminUsers = () => {
 
             <div class="agenda-todo-list">
               <h4 class="agenda-todo-list-title">
-                {{ todoViewMode === "overdue" ? "To-dos atrasados" : `To-dos del ${selectedMaintenanceDateLabel}` }}
+                {{ todoViewMode === "overdue" ? "To-dos atrasados" : `To-dos del ${selectedTodoDateLabel}` }}
               </h4>
               <p v-if="!visibleTodos.length" class="agenda-empty">
                 {{ todoViewMode === "overdue" ? "No hay to-dos atrasados." : "No hay to-dos para este dia." }}
