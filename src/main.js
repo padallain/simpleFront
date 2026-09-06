@@ -24,10 +24,8 @@ createApp(App).use(router).use(vuetify).use(ElementPlus).mount('#app')
  
 // Registrar el service worker para PWA
 if ('serviceWorker' in navigator) {
-	window.addEventListener('load', () => {
-		const serviceWorkerUrl = `${import.meta.env.BASE_URL}service-worker.js`;
-		navigator.serviceWorker.register(serviceWorkerUrl)
-			.then(reg => console.log('Service Worker registrado:', reg))
-			.catch(err => console.error('Error registrando Service Worker:', err));
-	});
+	const serviceWorkerUrl = `${import.meta.env.BASE_URL}service-worker.js`;
+	navigator.serviceWorker.register(serviceWorkerUrl)
+		.then(reg => console.log('Service Worker registrado:', reg))
+		.catch(err => console.error('Error registrando Service Worker:', err));
 }

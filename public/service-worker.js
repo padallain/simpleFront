@@ -38,7 +38,65 @@ async function resolveNavigationFallback() {
 
 async function cacheAppShell() {
   const cache = await caches.open(CACHE_NAME);
-  await cache.addAll(getAppShellUrls());
+  const shellUrls = getAppShellUrls();
+  await cache.addAll(shellUrls);
+
+  try {
+    const indexUrl = shellUrls[1];
+    const indexResponse = await fetch(indexUrl, { cache: 'no-store' });
+
+    if (!indexResponse.ok) {
+      return;
+    }
+
+    const indexHtml = await indexResponse.text();
+    const assetUrls = extractAssetUrlsFromIndex(indexHtml, indexUrl);
+
+    if (assetUrls.length > 0) {
+      await cache.addAll(assetUrls);
+    }
+  } catch (_error) {
+    // Si falla el precache de assets, al menos queda cacheado el app shell.
+  }
+}
+
+function extractAssetUrlsFromIndex(indexHtml, baseUrl) {
+  const assetUrls = new Set();
+  const attributePattern = /(src|href)=["']([^"']+)["']/gi;
+  let match;
+
+  while ((match = attributePattern.exec(indexHtml)) !== null) {
+    const rawUrl = String(match[2] || '').trim();
+
+    if (!rawUrl || rawUrl.startsWith('data:') || rawUrl.startsWith('javascript:')) {
+      continue;
+    }
+
+    try {
+      const resolvedUrl = new URL(rawUrl, baseUrl);
+
+      if (resolvedUrl.origin !== self.location.origin) {
+        continue;
+      }
+
+      const pathname = resolvedUrl.pathname.toLowerCase();
+      const isBundleAsset = pathname.endsWith('.js')
+        || pathname.endsWith('.css')
+        || pathname.endsWith('.svg')
+        || pathname.endsWith('.png')
+        || pathname.endsWith('.woff')
+        || pathname.endsWith('.woff2')
+        || pathname.endsWith('.ttf');
+
+      if (isBundleAsset) {
+        assetUrls.add(resolvedUrl.href);
+      }
+    } catch (_error) {
+      // Ignorar URLs mal formadas.
+    }
+  }
+
+  return [...assetUrls];
 }
 
 self.addEventListener('install', (event) => {
