@@ -8,7 +8,32 @@ function getAppShellUrls() {
     scopeUrl.href,
     new URL('index.html', scopeUrl).href,
     new URL('manifest.json', scopeUrl).href,
+    new URL('box.svg', scopeUrl).href,
   ];
+}
+
+async function resolveNavigationFallback() {
+  const cache = await caches.open(CACHE_NAME);
+  const scopeUrl = new URL('./', self.registration.scope);
+  const candidates = [
+    new URL('index.html', scopeUrl).href,
+    scopeUrl.href,
+    `${self.location.origin}/index.html`,
+    `${self.location.origin}/`,
+  ];
+
+  for (const candidate of candidates) {
+    const match = await cache.match(candidate);
+    if (match) {
+      return match;
+    }
+  }
+
+  return new Response('Offline y sin cache disponible para esta ruta.', {
+    status: 503,
+    statusText: 'Offline',
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  });
 }
 
 async function cacheAppShell() {
@@ -45,9 +70,7 @@ self.addEventListener('fetch', (event) => {
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request).catch(async () => {
-        const cache = await caches.open(CACHE_NAME);
-        return cache.match(new URL('index.html', new URL('./', self.registration.scope)).href)
-          || cache.match(new URL('./', self.registration.scope).href);
+        return resolveNavigationFallback();
       }),
     );
     return;
@@ -69,7 +92,11 @@ self.addEventListener('fetch', (event) => {
 
         return networkResponse;
       } catch (_error) {
-        return caches.match(new URL('index.html', new URL('./', self.registration.scope)).href);
+        return new Response('Recurso no disponible en cache y sin red.', {
+          status: 504,
+          statusText: 'Gateway Timeout',
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        });
       }
     }),
   );
