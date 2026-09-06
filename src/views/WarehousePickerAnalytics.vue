@@ -725,9 +725,9 @@ onMounted(() => {
           <small>Responsables con picking en el periodo</small>
         </article>
         <article class="summary-card accent-rose">
-          <span class="summary-label">Errores reportados</span>
-          <strong>{{ formatInteger(overview.totalErrores) }}</strong>
-          <small>{{ topErrorWorker ? `${topErrorWorker.responsableId} lidera con ${formatInteger(topErrorWorker.totalErrores)} errores` : "Sin errores reportados" }}</small>
+          <span class="summary-label">Relacion pedidos+cajas</span>
+          <strong>{{ topWorker ? `${Number(topWorker.relacionPedidosCajas || 0).toFixed(2)}%` : "0.00%" }}</strong>
+          <small>{{ topWorker ? `${topWorker.responsableId} lidera el balance` : "Sin datos para calcular relacion" }}</small>
         </article>
       </div>
 
@@ -753,7 +753,7 @@ onMounted(() => {
             <div class="spotlight-main">
               <p class="spotlight-rank">Top del periodo</p>
               <h3>{{ topWorker.responsableId }}</h3>
-              <p class="spotlight-id">Almacenista con mayor picking registrado</p>
+              <p class="spotlight-id">Almacenista con mejor relacion entre pedidos y cajas</p>
 
               <div class="spotlight-metrics">
                 <div>
@@ -763,6 +763,10 @@ onMounted(() => {
                 <div>
                   <span>Cajas</span>
                   <strong>{{ formatInteger(topWorker.totalCajas) }}</strong>
+                </div>
+                <div>
+                  <span>Relacion pedidos+cajas</span>
+                  <strong>{{ Number(topWorker.relacionPedidosCajas || 0).toFixed(2) }}%</strong>
                 </div>
               </div>
             </div>
@@ -779,9 +783,9 @@ onMounted(() => {
                 <small>Volumen movido por el top</small>
               </article>
               <article class="kpi-card">
-                <span>Mas errores reportados</span>
-                <strong>{{ topErrorWorker?.responsableId || "Sin datos" }}</strong>
-                <small>{{ topErrorWorker ? `${formatInteger(topErrorWorker.totalErrores)} errores asociados` : "Sin errores en el periodo" }}</small>
+                <span>Cajas por pedido del top</span>
+                <strong>{{ Number(topWorker?.cajasPorPedido || 0).toFixed(2) }}</strong>
+                <small>Promedio de cajas por cada pedido procesado</small>
               </article>
             </div>
           </div>
@@ -811,7 +815,7 @@ onMounted(() => {
                 <div class="driver-status-group">
                   <span class="status-chip">{{ formatInteger(worker.totalPedidos) }} pedidos</span>
                   <span class="status-chip status-chip-alt">{{ formatInteger(worker.totalCajas) }} cajas</span>
-                  <span class="status-chip status-chip-error">{{ formatInteger(worker.totalErrores) }} errores</span>
+                  <span class="status-chip status-chip-error">{{ Number(worker.relacionPedidosCajas || 0).toFixed(2) }}% relacion</span>
                 </div>
               </div>
 
@@ -825,8 +829,12 @@ onMounted(() => {
                   <strong>{{ formatInteger(worker.totalCajas) }}</strong>
                 </div>
                 <div>
-                  <span>Errores</span>
-                  <strong>{{ formatInteger(worker.totalErrores) }}</strong>
+                  <span>Relacion pedidos+cajas</span>
+                  <strong>{{ Number(worker.relacionPedidosCajas || 0).toFixed(2) }}%</strong>
+                </div>
+                <div>
+                  <span>Cajas por pedido</span>
+                  <strong>{{ Number(worker.cajasPorPedido || 0).toFixed(2) }}</strong>
                 </div>
               </div>
             </article>

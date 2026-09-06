@@ -34,6 +34,8 @@ const addStopLoading = ref(false);
 const addStopBranchOptions = ref([]);
 const selectedAddStopBranch = ref("");
 const addStopPendingClientId = ref("");
+const addStopMessage = ref("");
+const addStopMessageType = ref("error");
 const pendingRemovalClientId = ref("");
 
 let previewDistanceTimer = null;
@@ -370,6 +372,8 @@ async function copyShareMessage() {
 async function addClientToRoute() {
   if (!routeData.value?._id) {
     errorMessage.value = "No hay una ruta activa para editar.";
+    addStopMessage.value = errorMessage.value;
+    addStopMessageType.value = "error";
     return;
   }
 
@@ -377,6 +381,8 @@ async function addClientToRoute() {
 
   if (!normalizedClientId) {
     errorMessage.value = "Escribe el ID del cliente que quieres agregar.";
+    addStopMessage.value = errorMessage.value;
+    addStopMessageType.value = "error";
     return;
   }
 
@@ -391,6 +397,7 @@ async function addClientToRoute() {
   addStopLoading.value = true;
   errorMessage.value = "";
   feedback.value = "";
+  addStopMessage.value = "";
 
   try {
     const response = await fetch(`${API_BASE_URL}/driver-routes/${routeData.value._id}/stops`, {
@@ -408,10 +415,24 @@ async function addClientToRoute() {
         selectedAddStopBranch.value = String(result.branches[0]?.sucursal ?? "");
         addStopPendingClientId.value = normalizedClientId;
         feedback.value = "Este cliente tiene varias sedes. Elige una para continuar.";
+        addStopMessage.value = feedback.value;
+        addStopMessageType.value = "success";
+        return;
+      }
+
+      if (
+        response.status === 404
+        && (result?.code === "CLIENT_NOT_FOUND" || /not found|no esta/i.test(String(result?.message || "")))
+      ) {
+        errorMessage.value = `El cliente ${normalizedClientId} no esta en la base de datos.`;
+        addStopMessage.value = errorMessage.value;
+        addStopMessageType.value = "error";
         return;
       }
 
       errorMessage.value = result?.message || "No se pudo agregar el cliente a la ruta.";
+      addStopMessage.value = errorMessage.value;
+      addStopMessageType.value = "error";
       return;
     }
 
@@ -423,9 +444,13 @@ async function addClientToRoute() {
     selectedAddStopBranch.value = "";
     addStopPendingClientId.value = "";
     feedback.value = `Cliente ${normalizedClientId} agregado a la ruta.`;
+    addStopMessage.value = feedback.value;
+    addStopMessageType.value = "success";
     schedulePreviewDistance();
   } catch (error) {
     errorMessage.value = `Error agregando cliente: ${error.message}`;
+    addStopMessage.value = errorMessage.value;
+    addStopMessageType.value = "error";
   } finally {
     addStopLoading.value = false;
   }
@@ -535,6 +560,7 @@ function handleAddStopClientIdInput() {
   addStopBranchOptions.value = [];
   selectedAddStopBranch.value = "";
   addStopPendingClientId.value = "";
+  addStopMessage.value = "";
 }
 
 function togglePriorityStop(clientId) {
@@ -915,14 +941,6 @@ async function updateDispatch(stop, dispatched) {
   }
 }
 
-function openRouteIssueSummary() {
-  if (!routeData.value?._id) {
-    return;
-  }
-
-  router.push(`/driver-route/${routeData.value._id}/issues-summary`);
-}
-
 async function downloadRouteGpx() {
   const routeId = String(routeData.value?._id || "").trim();
 
@@ -1179,9 +1197,6 @@ watch(
           </div>
 
           <div class="actions-grid">
-            <button class="secondary-button action-button" type="button" @click="openRouteIssueSummary">
-              Ver resumen de novedades
-            </button>
             <button class="secondary-button action-button" type="button" @click="startRouteEditing">
               Personalizar orden
             </button>
@@ -1288,6 +1303,13 @@ watch(
                       {{ addStopLoading ? "Agregando..." : "Agregar sede seleccionada" }}
                     </button>
                   </div>
+                  <p
+                    v-if="addStopMessage"
+                    class="add-stop-inline-message"
+                    :class="addStopMessageType === 'error' ? 'add-stop-inline-message-error' : 'add-stop-inline-message-success'"
+                  >
+                    {{ addStopMessage }}
+                  </p>
                 </div>
                 <div class="editor-mirror-controls">
                   <button class="ghost-button" type="button" @click="applyMirroredRouteOrder">
@@ -1775,6 +1797,26 @@ watch(
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.96);
   color: #1f2937;
+}
+
+.add-stop-inline-message {
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.add-stop-inline-message-error {
+  color: #ffb4b4;
+  border-color: rgba(248, 113, 113, 0.38);
+  background: rgba(127, 29, 29, 0.24);
+}
+
+.add-stop-inline-message-success {
+  color: #8df0b4;
+  border-color: rgba(74, 222, 128, 0.36);
+  background: rgba(20, 83, 45, 0.24);
 }
 
 .editor-mirror-controls {

@@ -546,3 +546,36 @@ export async function createUserByAdmin({ email, username, password, role = "use
 
   return result;
 }
+
+export async function updateUserRoleByAdmin({ userId, role }) {
+  const response = await fetchWithSession(`${API_BASE_URL}/internal/admin/users/${encodeURIComponent(userId)}/role`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "x-skip-auth-redirect": "true",
+    },
+    body: JSON.stringify({ role }),
+  });
+  const result = await parseJson(response);
+
+  if (!response.ok) {
+    throw new Error(result?.message || "No se pudo actualizar el rol");
+  }
+
+  return result;
+}
+
+export async function fetchReporterUsersByAdmin() {
+  const response = await fetchWithSession(`${API_BASE_URL}/internal/admin/users/reporters`, {
+    headers: {
+      "x-skip-auth-redirect": "true",
+    },
+  });
+  const result = await parseJson(response);
+
+  if (!response.ok) {
+    throw new Error(result?.message || "No se pudieron cargar los usuarios reporteros");
+  }
+
+  return result;
+}

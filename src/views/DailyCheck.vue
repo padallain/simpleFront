@@ -124,6 +124,7 @@
           </div>
         </section>
 
+
         <div class="submit-status" aria-live="polite">
           <div v-if="enviando" class="status-card status-card-sending">
             <span class="status-icon status-icon-spinner" aria-hidden="true"></span>
@@ -184,6 +185,7 @@
           </div>
         </div>
       </div>
+
     </div>
   </section>
 </template>
@@ -503,6 +505,7 @@ button {
 
 input[type="text"],
 input[type="number"],
+select,
 textarea {
   width: 100%;
   box-sizing: border-box;
@@ -589,6 +592,51 @@ textarea {
 
 .issue-input {
   margin-top: 0.9rem;
+}
+
+.fuel-toggle-row {
+  margin-bottom: 0.9rem;
+}
+
+.fuel-summary-panel {
+  margin-top: 1rem;
+}
+
+.fuel-refresh-btn {
+  border: none;
+  min-height: 40px;
+  padding: 0.6rem 0.9rem;
+}
+
+.fuel-summary-grid {
+  margin-top: 0.8rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.fuel-day-card {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.8rem;
+  border-radius: 16px;
+  border: 1px solid rgba(159, 209, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.fuel-day-card strong {
+  font-size: 0.92rem;
+}
+
+.fuel-day-card span {
+  color: rgba(244, 247, 251, 0.78);
+  font-size: 0.86rem;
+}
+
+.feedback-inline-error {
+  margin: 0;
+  color: #ffb4b4;
+  font-weight: 600;
 }
 
 

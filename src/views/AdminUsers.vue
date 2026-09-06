@@ -40,6 +40,8 @@
             Rol
             <select v-model="createForm.role">
               <option value="user">Usuario</option>
+              <option value="chofer">Chofer</option>
+              <option value="almacenista">Almacenista</option>
               <option value="admin">Administrador</option>
             </select>
           </label>
@@ -77,6 +79,8 @@
                 <td>
                   <select v-model="approvalRoles[user._id || user.id]">
                     <option value="user">Usuario</option>
+                    <option value="chofer">Chofer</option>
+                    <option value="almacenista">Almacenista</option>
                     <option value="admin">Administrador</option>
                   </select>
                 </td>
@@ -128,7 +132,24 @@
               <tr v-for="user in approvedUsers" :key="user._id || user.id">
                 <td>{{ user.username }}</td>
                 <td>{{ user.email }}</td>
-                <td>{{ user.role === "admin" ? "Administrador" : "Usuario" }}</td>
+                <td>
+                  <div class="row-actions">
+                    <select v-model="roleDrafts[user._id || user.id]">
+                      <option value="user">Usuario</option>
+                      <option value="chofer">Chofer</option>
+                      <option value="almacenista">Almacenista</option>
+                      <option value="admin">Administrador</option>
+                    </select>
+                    <button
+                      class="small-button"
+                      type="button"
+                      :disabled="roleLoadingId === (user._id || user.id)"
+                      @click="changeUserRole(user._id || user.id, roleDrafts[user._id || user.id])"
+                    >
+                      Guardar rol
+                    </button>
+                  </div>
+                </td>
                 <td>{{ formatDate(user.approvedAt) }}</td>
                 <td>
                   <input
@@ -154,6 +175,54 @@
 
         <p v-else class="empty-text">No hay usuarios aprobados para mostrar.</p>
       </section>
+
+      <section class="panel-card">
+        <div class="panel-header">
+          <h2>Usuarios que ya hacen reportes</h2>
+          <span>{{ reporterUsers.length }}</span>
+        </div>
+
+        <div v-if="reporterUsers.length" class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Usuario</th>
+                <th>Correo</th>
+                <th>Rol</th>
+                <th>Total reportes</th>
+                <th>Detalle</th>
+                <th>Accion</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="reporter in reporterUsers" :key="reporter.id">
+                <td>{{ reporter.username }}</td>
+                <td>{{ reporter.email }}</td>
+                <td>{{ formatRoleLabel(reporter.role) }}</td>
+                <td>{{ reporter.totalReports }}</td>
+                <td>
+                  DC {{ reporter.sources?.dailyCheck || 0 }} ·
+                  Den {{ reporter.sources?.clientLocation || 0 }} ·
+                  Desp {{ reporter.sources?.dispatchIssue || 0 }} ·
+                  Fuel {{ reporter.sources?.fuelReport || 0 }}
+                </td>
+                <td>
+                  <button
+                    class="small-button"
+                    type="button"
+                    :disabled="roleLoadingId === reporter.id || reporter.role === 'chofer'"
+                    @click="changeUserRole(reporter.id, 'chofer')"
+                  >
+                    {{ reporter.role === "chofer" ? "Ya es chofer" : "Pasar a chofer" }}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p v-else class="empty-text">No se detectaron usuarios con reportes asociados.</p>
+      </section>
     </div>
   </section>
 </template>
@@ -164,6 +233,8 @@ import {
   approveUserByAdmin,
   createUserByAdmin,
   fetchAdminUsers,
+  fetchReporterUsersByAdmin,
+  updateUserRoleByAdmin,
   updateUserPasswordByAdmin,
 } from "../services/auth";
 
@@ -171,10 +242,13 @@ const loading = ref(false);
 const creatingUser = ref(false);
 const approvalLoadingId = ref("");
 const passwordLoadingId = ref("");
+const roleLoadingId = ref("");
 const errorMessage = ref("");
 const feedbackMessage = ref("");
 const users = ref([]);
+const reporterUsers = ref([]);
 const approvalRoles = reactive({});
+const roleDrafts = reactive({});
 const passwordDrafts = reactive({});
 const createForm = reactive({
   email: "",
@@ -185,6 +259,24 @@ const createForm = reactive({
 
 const pendingUsers = computed(() => users.value.filter((user) => user?.isApproved === false));
 const approvedUsers = computed(() => users.value.filter((user) => user?.isApproved !== false));
+
+function formatRoleLabel(role) {
+  if (role === "admin") {
+    return "Administrador";
+  }
+
+  if (role === "chofer") {
+    return "Chofer";
+  }
+
+  if (role === "almacenista") {
+    return "Almacenista";
+  }
+
+  return "Usuario";
+}
+
+const MANAGEABLE_ROLES = ["admin", "chofer", "almacenista"];
 
 function formatDate(value) {
   if (!value) {
@@ -217,7 +309,11 @@ function setUsers(nextUsers) {
     }
 
     if (!approvalRoles[userId]) {
-      approvalRoles[userId] = user.role === "admin" ? "admin" : "user";
+      approvalRoles[userId] = MANAGEABLE_ROLES.includes(user.role) ? user.role : "user";
+    }
+
+    if (!roleDrafts[userId]) {
+      roleDrafts[userId] = MANAGEABLE_ROLES.includes(user.role) ? user.role : "user";
     }
 
     if (!passwordDrafts[userId]) {
@@ -231,12 +327,36 @@ async function loadAllData() {
   errorMessage.value = "";
 
   try {
-    const result = await fetchAdminUsers();
+    const [result, reporterResult] = await Promise.all([
+      fetchAdminUsers(),
+      fetchReporterUsersByAdmin(),
+    ]);
     setUsers(result?.users || []);
+    reporterUsers.value = Array.isArray(reporterResult?.reporters) ? reporterResult.reporters : [];
   } catch (error) {
     errorMessage.value = error.message || "No se pudo cargar la administracion de usuarios.";
   } finally {
     loading.value = false;
+  }
+}
+
+async function changeUserRole(userId, role) {
+  if (!userId) {
+    return;
+  }
+
+  roleLoadingId.value = userId;
+  errorMessage.value = "";
+  feedbackMessage.value = "";
+
+  try {
+    await updateUserRoleByAdmin({ userId, role });
+    feedbackMessage.value = "Rol actualizado correctamente.";
+    await loadAllData();
+  } catch (error) {
+    errorMessage.value = error.message || "No se pudo actualizar el rol.";
+  } finally {
+    roleLoadingId.value = "";
   }
 }
 
@@ -247,7 +367,7 @@ async function submitCreateUser() {
   const email = String(createForm.email || "").trim();
   const username = String(createForm.username || "").trim();
   const password = String(createForm.password || "");
-  const role = createForm.role === "admin" ? "admin" : "user";
+  const role = MANAGEABLE_ROLES.includes(createForm.role) ? createForm.role : "user";
 
   if (!email || !username || !password) {
     errorMessage.value = "Completa correo, usuario y contrasena.";
@@ -292,7 +412,7 @@ async function approveUser(user, isApproved) {
     await approveUserByAdmin({
       userId,
       isApproved,
-      role: approvalRoles[userId] === "admin" ? "admin" : "user",
+      role: MANAGEABLE_ROLES.includes(approvalRoles[userId]) ? approvalRoles[userId] : "user",
     });
     feedbackMessage.value = isApproved
       ? "Usuario aprobado correctamente."

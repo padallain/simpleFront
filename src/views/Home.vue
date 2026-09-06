@@ -16,6 +16,8 @@ const route = useRoute();
 const router = useRouter();
 const authUser = ref(getAuthState().user || null);
 const isAdminUser = computed(() => Boolean(authUser.value?.isAdmin));
+const isDriverUser = computed(() => String(authUser.value?.role || "").toLowerCase() === "chofer");
+const isWarehouseUser = computed(() => String(authUser.value?.role || "").toLowerCase() === "almacenista");
 
 const latitude = ref("");
 const clientCount = ref(0)
@@ -65,6 +67,18 @@ const maintenanceTodoTitle = ref("");
 const maintenanceTodoDate = ref("");
 const maintenanceTodoError = ref("");
 const maintenanceTodoList = ref([]);
+const warehousePerformanceDate = ref(getDateKeyFromValue(new Date()));
+const isLoadingWarehousePerformance = ref(false);
+const warehousePerformanceError = ref("");
+const warehousePerformance = ref({
+  totalPedidos: 0,
+  totalCajas: 0,
+  responsablesActivos: 0,
+  metaPedidosPorAlmacenista: 0,
+  almacenistasBajoMeta: 0,
+  topResponsables: [],
+  bajoMetaResponsables: [],
+});
 
 const todayDateKey = getDateKeyFromValue(new Date());
 
@@ -359,6 +373,24 @@ function formatTodoDateLabel(dateKey) {
   });
 }
 
+function formatWarehousePerformanceDate(value) {
+  if (!value) {
+    return "hoy";
+  }
+
+  const parsedDate = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("es-MX", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+  }).format(parsedDate);
+}
+
 function selectMaintenanceDate(dateKey) {
   selectedMaintenanceDate.value = dateKey;
 }
@@ -485,6 +517,64 @@ async function loadMaintenanceAgenda() {
     maintenanceScheduleError.value = error?.message || "No se pudo cargar la agenda de mantenimiento.";
   } finally {
     isLoadingMaintenance.value = false;
+  }
+}
+
+async function loadWarehousePerformance() {
+  if (!isAdminUser.value) {
+    return;
+  }
+
+  if (!warehousePerformanceDate.value) {
+    warehousePerformanceError.value = "Selecciona una fecha valida para consultar picking.";
+    return;
+  }
+
+  isLoadingWarehousePerformance.value = true;
+  warehousePerformanceError.value = "";
+
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/internal/admin/picking-reports/daily-performance?fecha=${encodeURIComponent(warehousePerformanceDate.value)}`,
+    );
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      warehousePerformanceError.value = result?.message || "No se pudo cargar el rendimiento diario de picking.";
+      warehousePerformance.value = {
+        totalPedidos: 0,
+        totalCajas: 0,
+        responsablesActivos: 0,
+        metaPedidosPorAlmacenista: 0,
+        almacenistasBajoMeta: 0,
+        topResponsables: [],
+        bajoMetaResponsables: [],
+      };
+      return;
+    }
+
+    warehousePerformance.value = {
+      totalPedidos: Number(result?.resumen?.totalPedidos) || 0,
+      totalCajas: Number(result?.resumen?.totalCajas) || 0,
+      responsablesActivos: Number(result?.resumen?.responsablesActivos) || 0,
+      metaPedidosPorAlmacenista: Number(result?.resumen?.metaPedidosPorAlmacenista) || 0,
+      almacenistasBajoMeta: Number(result?.resumen?.almacenistasBajoMeta) || 0,
+      topResponsables: Array.isArray(result?.topResponsables) ? result.topResponsables : [],
+      bajoMetaResponsables: Array.isArray(result?.bajoMetaResponsables) ? result.bajoMetaResponsables : [],
+    };
+  } catch (_error) {
+    warehousePerformanceError.value = "No se pudo conectar para cargar el rendimiento diario de picking.";
+    warehousePerformance.value = {
+      totalPedidos: 0,
+      totalCajas: 0,
+      responsablesActivos: 0,
+      metaPedidosPorAlmacenista: 0,
+      almacenistasBajoMeta: 0,
+      topResponsables: [],
+      bajoMetaResponsables: [],
+    };
+  } finally {
+    isLoadingWarehousePerformance.value = false;
   }
 }
 
@@ -708,6 +798,7 @@ onMounted(async () => {
     if (isAdminUser.value) {
       loadMaintenanceAgenda();
       loadMaintenanceTodos();
+      loadWarehousePerformance();
 
       if (!maintenanceTodoDate.value) {
         maintenanceTodoDate.value = selectedMaintenanceDate.value || todayDateKey;
@@ -902,6 +993,18 @@ const goToClientLocationReports = () => {
   router.push('/client-location-reports');
 };
 
+const goToDailyCheck = () => {
+  router.push('/daily-check');
+};
+
+const goToDriverRoute = () => {
+  router.push('/driver-route');
+};
+
+const goToFuelReport = () => {
+  router.push('/fuel-report');
+};
+
 const goToRouteManagement = () => {
   router.push('/route-management');
 };
@@ -976,6 +1079,83 @@ const goToAdminUsers = () => {
           <span class="stat-label">{{ isOnline ? 'En línea' : 'Sin conexión' }}</span>
         </div>
       </div>
+
+      <section v-if="isAdminUser" class="warehouse-performance-panel" aria-label="Rendimiento diario de almacenistas">
+        <div class="warehouse-performance-header">
+          <div>
+            <p class="warehouse-performance-kicker">Rendimiento de almacen</p>
+            <h2>Picking diario por almacenista</h2>
+            <p>
+              Resumen del {{ formatWarehousePerformanceDate(warehousePerformanceDate) }} con foco en actividad y alertas de bajo picking.
+            </p>
+          </div>
+
+          <div class="warehouse-performance-search">
+            <label for="warehousePerformanceDate">Fecha</label>
+            <div class="warehouse-performance-search-row">
+              <input id="warehousePerformanceDate" v-model="warehousePerformanceDate" type="date" />
+              <button class="btn btn-secondary" type="button" :disabled="isLoadingWarehousePerformance" @click="loadWarehousePerformance">
+                {{ isLoadingWarehousePerformance ? "Consultando..." : "Consultar" }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <p v-if="warehousePerformanceError" class="warehouse-performance-error">{{ warehousePerformanceError }}</p>
+
+        <div class="warehouse-performance-stats">
+          <article class="warehouse-performance-stat">
+            <strong>{{ warehousePerformance.totalPedidos }}</strong>
+            <span>Pedidos del dia</span>
+          </article>
+          <article class="warehouse-performance-stat">
+            <strong>{{ warehousePerformance.totalCajas }}</strong>
+            <span>Cajas registradas</span>
+          </article>
+          <article class="warehouse-performance-stat">
+            <strong>{{ warehousePerformance.responsablesActivos }}</strong>
+            <span>Almacenistas activos</span>
+          </article>
+          <article class="warehouse-performance-stat warehouse-performance-stat-alert">
+            <strong>{{ warehousePerformance.almacenistasBajoMeta }}</strong>
+            <span>Bajo meta</span>
+          </article>
+        </div>
+
+        <div class="warehouse-performance-lists">
+          <article class="warehouse-performance-list-card">
+            <div class="warehouse-performance-list-header">
+              <strong>Top rendimiento</strong>
+              <span>Meta: {{ warehousePerformance.metaPedidosPorAlmacenista }} pedidos</span>
+            </div>
+            <p v-if="!warehousePerformance.topResponsables.length" class="warehouse-performance-empty">
+              No hay registros de picking para esta fecha.
+            </p>
+            <ul v-else class="warehouse-performance-list">
+              <li v-for="worker in warehousePerformance.topResponsables" :key="`top-${worker.responsableId}`">
+                <span>{{ worker.responsableId }}</span>
+                <strong>{{ worker.totalPedidos }} pedidos · {{ worker.totalCajas }} cajas</strong>
+              </li>
+            </ul>
+          </article>
+
+          <article class="warehouse-performance-list-card">
+            <div class="warehouse-performance-list-header">
+              <strong>Alertas de bajo picking</strong>
+              <span>{{ warehousePerformance.bajoMetaResponsables.length }} almacenista(s)</span>
+            </div>
+            <p v-if="!warehousePerformance.bajoMetaResponsables.length" class="warehouse-performance-empty">
+              No hay alertas. Todos cumplen la meta del dia.
+            </p>
+            <ul v-else class="warehouse-performance-list">
+              <li v-for="worker in warehousePerformance.bajoMetaResponsables" :key="`low-${worker.responsableId}`">
+                <span>{{ worker.responsableId }}</span>
+                <strong>Faltan {{ worker.faltanPedidos }} pedidos</strong>
+              </li>
+            </ul>
+          </article>
+        </div>
+      </section>
 
       <div v-if="isAdminUser" class="admin-agenda-row">
         <section class="maintenance-agenda" aria-label="Agenda de mantenimiento" @click="handleMaintenanceAgendaClick">
@@ -1129,6 +1309,73 @@ const goToAdminUsers = () => {
 
       <!-- ── Module navigation ──────────────────────── -->
       <nav class="modules-grid" aria-label="Módulos del sistema">
+        <button v-if="isDriverUser" class="module-card" type="button" @click="goToDriverRoute">
+          <span class="mod-icon" style="--c:#60a5fa;--b:rgba(96,165,250,0.12)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 18l6-6-6-6"/><path d="M3 12h12"/>
+            </svg>
+          </span>
+          <span class="mod-text">
+            <strong>Mi ruta</strong>
+            <em>Ver y editar paradas</em>
+          </span>
+          <span class="mod-chevron">›</span>
+        </button>
+
+        <button v-if="isDriverUser" class="module-card" type="button" @click="goToDailyCheck">
+          <span class="mod-icon" style="--c:#34d399;--b:rgba(52,211,153,0.12)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+            </svg>
+          </span>
+          <span class="mod-text">
+            <strong>Reporte diario</strong>
+            <em>Estado del vehiculo</em>
+          </span>
+          <span class="mod-chevron">›</span>
+        </button>
+
+        <button v-if="isDriverUser" class="module-card" type="button" @click="goToFuelReport">
+          <span class="mod-icon" style="--c:#f59e0b;--b:rgba(245,158,11,0.12)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 3h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-2z"/><path d="M6 7h8v14H6z"/><path d="M18 7h1a2 2 0 0 0 2-2V4"/>
+            </svg>
+          </span>
+          <span class="mod-text">
+            <strong>Combustible</strong>
+            <em>Registrar recarga</em>
+          </span>
+          <span class="mod-chevron">›</span>
+        </button>
+
+        <template v-if="isAdminUser || isWarehouseUser">
+        <button v-if="isWarehouseUser || isAdminUser" class="module-card module-card-wide" type="button" @click="goToWarehousePicking">
+          <span class="mod-icon" style="--c:#2dd4bf;--b:rgba(45,212,191,0.12)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
+            </svg>
+          </span>
+          <span class="mod-text">
+            <strong>Picking</strong>
+            <em>Registrar cajas y pedidos</em>
+          </span>
+          <span class="mod-chevron">›</span>
+        </button>
+
+        <button v-if="isAdminUser" class="module-card" type="button" @click="goToWarehousePickerAnalytics">
+          <span class="mod-icon" style="--c:#38bdf8;--b:rgba(56,189,248,0.12)">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+            </svg>
+          </span>
+          <span class="mod-text">
+            <strong>Analisis almacenistas</strong>
+            <em>Resumen de productividad</em>
+          </span>
+          <span class="mod-chevron">›</span>
+        </button>
+
+        <template v-if="isAdminUser">
         <button class="module-card" type="button" @click="goToClientLocationReports">
           <span class="mod-icon" style="--c:#f59e0b;--b:rgba(245,158,11,0.12)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1181,19 +1428,6 @@ const goToAdminUsers = () => {
           <span class="mod-chevron">›</span>
         </button>
 
-        <button class="module-card module-card-wide" type="button" @click="goToWarehousePicking">
-          <span class="mod-icon" style="--c:#2dd4bf;--b:rgba(45,212,191,0.12)">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
-            </svg>
-          </span>
-          <span class="mod-text">
-            <strong>Picking</strong>
-            <em>Registrar cajas y pedidos</em>
-          </span>
-          <span class="mod-chevron">›</span>
-        </button>
-
         <button v-if="isAdminUser" class="module-card module-card-admin" type="button" @click="goToAdminUsers">
           <span class="mod-icon" style="--c:#fb7185;--b:rgba(251,113,133,0.14)">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1207,6 +1441,8 @@ const goToAdminUsers = () => {
           </span>
           <span class="mod-chevron">›</span>
         </button>
+        </template>
+        </template>
       </nav>
 
       <!-- ── Form card ──────────────────────────────── -->
@@ -1528,6 +1764,168 @@ const goToAdminUsers = () => {
 .status-offline {
   background: #f87171;
   box-shadow: 0 0 8px rgba(248, 113, 113, 0.5);
+}
+
+/* ── Warehouse performance ────────────────────────── */
+.warehouse-performance-panel {
+  margin-bottom: 1.15rem;
+  padding: 1.2rem;
+  border-radius: 24px;
+  background: rgba(10, 20, 36, 0.74);
+  border: 1px solid rgba(159, 209, 255, 0.14);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22);
+  text-align: left;
+}
+
+.warehouse-performance-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.warehouse-performance-kicker {
+  margin: 0;
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(159, 209, 255, 0.75);
+}
+
+.warehouse-performance-header h2 {
+  margin: 0.28rem 0 0;
+  color: #f3f6fb;
+  font-size: 1.28rem;
+}
+
+.warehouse-performance-header p {
+  margin: 0.45rem 0 0;
+  color: rgba(243, 246, 251, 0.58);
+  font-size: 0.88rem;
+}
+
+.warehouse-performance-search {
+  min-width: 240px;
+}
+
+.warehouse-performance-search label {
+  display: block;
+  margin-bottom: 0.3rem;
+  font-size: 0.82rem;
+  color: rgba(243, 246, 251, 0.72);
+}
+
+.warehouse-performance-search-row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.warehouse-performance-search-row input {
+  min-width: 0;
+}
+
+.warehouse-performance-error {
+  margin: 0.85rem 0 0;
+  color: #ffb4b4;
+  font-size: 0.87rem;
+}
+
+.warehouse-performance-stats {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.warehouse-performance-stat {
+  border-radius: 14px;
+  padding: 0.75rem 0.8rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(159, 209, 255, 0.14);
+  display: grid;
+  gap: 0.2rem;
+}
+
+.warehouse-performance-stat strong {
+  color: #f3f6fb;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.warehouse-performance-stat span {
+  color: rgba(243, 246, 251, 0.62);
+  font-size: 0.78rem;
+}
+
+.warehouse-performance-stat-alert {
+  border-color: rgba(248, 113, 113, 0.38);
+  background: rgba(86, 26, 26, 0.35);
+}
+
+.warehouse-performance-lists {
+  margin-top: 0.95rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.warehouse-performance-list-card {
+  border-radius: 16px;
+  padding: 0.9rem;
+  border: 1px solid rgba(159, 209, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.warehouse-performance-list-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.warehouse-performance-list-header strong {
+  color: #f3f6fb;
+}
+
+.warehouse-performance-list-header span {
+  color: rgba(243, 246, 251, 0.58);
+  font-size: 0.78rem;
+}
+
+.warehouse-performance-empty {
+  margin: 0.7rem 0 0;
+  color: rgba(243, 246, 251, 0.62);
+  font-size: 0.86rem;
+}
+
+.warehouse-performance-list {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.warehouse-performance-list li {
+  padding: 0.55rem 0.6rem;
+  border-radius: 12px;
+  border: 1px solid rgba(159, 209, 255, 0.12);
+  background: rgba(10, 19, 34, 0.55);
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+.warehouse-performance-list li span {
+  color: rgba(243, 246, 251, 0.8);
+  overflow-wrap: anywhere;
+}
+
+.warehouse-performance-list li strong {
+  color: #f3f6fb;
+  font-size: 0.86rem;
+  text-align: right;
 }
 
 /* ── Maintenance agenda ───────────────────────────── */
@@ -2423,6 +2821,27 @@ button {
   .admin-agenda-row {
     grid-template-columns: 1fr;
     align-items: start;
+  }
+
+  .warehouse-performance-header,
+  .warehouse-performance-search-row,
+  .warehouse-performance-list li,
+  .warehouse-performance-list-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .warehouse-performance-search {
+    min-width: 0;
+  }
+
+  .warehouse-performance-stats,
+  .warehouse-performance-lists {
+    grid-template-columns: 1fr;
+  }
+
+  .warehouse-performance-list li strong {
+    text-align: left;
   }
 
   .maintenance-agenda,

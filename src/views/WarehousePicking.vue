@@ -3,14 +3,27 @@ import { computed, onMounted, ref } from "vue";
 import { fetchSession, getAuthState } from "../services/auth";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
+const TODAY_DATE = new Date().toISOString().slice(0, 10);
 
 const sessionUser = ref(getAuthState().user || null);
 const numeroPedido = ref("");
 const numeroCajas = ref("");
+const summaryDate = ref(TODAY_DATE);
 
 const isSaving = ref(false);
+const isLoadingSummary = ref(false);
 const serverResponse = ref(null);
 const lastReceipt = ref(null);
+const summaryError = ref("");
+const dailySummary = ref({
+  totalPedidos: 0,
+  totalCajas: 0,
+  metaPedidos: 0,
+  faltanPedidos: 0,
+  isLowPicking: false,
+  estado: "bajo",
+});
+const recentReports = ref([]);
 
 const responsableId = computed(() => {
   const user = sessionUser.value || {};
@@ -70,6 +83,81 @@ async function loadSessionUser() {
   }
 }
 
+function formatSummaryDateLabel(value) {
+  if (!value) {
+    return "hoy";
+  }
+
+  const parsedDate = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("es-CO", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+  }).format(parsedDate);
+}
+
+function formatReportTime(value) {
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Sin hora";
+  }
+
+  return parsedDate.toLocaleTimeString("es-CO", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+async function loadDailySummary() {
+  if (!summaryDate.value) {
+    summaryError.value = "Selecciona una fecha valida para consultar tu picking.";
+    return;
+  }
+
+  isLoadingSummary.value = true;
+  summaryError.value = "";
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/picking-reports/my-daily-summary?fecha=${encodeURIComponent(summaryDate.value)}`);
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      summaryError.value = result?.message || "No se pudo cargar tu resumen de picking.";
+      dailySummary.value = {
+        totalPedidos: 0,
+        totalCajas: 0,
+        metaPedidos: 0,
+        faltanPedidos: 0,
+        isLowPicking: false,
+        estado: "bajo",
+      };
+      recentReports.value = [];
+      return;
+    }
+
+    dailySummary.value = {
+      totalPedidos: Number(result?.resumen?.totalPedidos) || 0,
+      totalCajas: Number(result?.resumen?.totalCajas) || 0,
+      metaPedidos: Number(result?.resumen?.metaPedidos) || 0,
+      faltanPedidos: Number(result?.resumen?.faltanPedidos) || 0,
+      isLowPicking: Boolean(result?.resumen?.isLowPicking),
+      estado: String(result?.resumen?.estado || "bajo"),
+    };
+    recentReports.value = Array.isArray(result?.reportes) ? result.reportes : [];
+  } catch {
+    summaryError.value = "No fue posible consultar tu resumen diario de picking.";
+    recentReports.value = [];
+  } finally {
+    isLoadingSummary.value = false;
+  }
+}
+
 async function registrarPicking() {
   const errors = validateForm();
 
@@ -117,6 +205,7 @@ async function registrarPicking() {
         message: result?.message || "El picking se guardo correctamente.",
       };
       resetForm();
+      await loadDailySummary();
     } else if (response.status === 409) {
       serverResponse.value = {
         type: "error",
@@ -143,6 +232,7 @@ async function registrarPicking() {
 
 onMounted(() => {
   loadSessionUser();
+  loadDailySummary();
 });
 </script>
 
@@ -158,6 +248,72 @@ onMounted(() => {
       </div>
 
       <div class="form-card">
+        <div class="daily-summary-panel">
+          <div class="daily-summary-header">
+            <div>
+              <p class="summary-kicker">Seguimiento propio</p>
+              <h2>Tu picking diario</h2>
+              <p>Consulta solo tus registros del dia y detecta si vas por debajo de la meta.</p>
+            </div>
+
+            <div class="summary-search">
+              <label for="summaryDate">Fecha</label>
+              <div class="summary-search-row">
+                <input id="summaryDate" type="date" v-model="summaryDate" />
+                <button class="clear-btn summary-button" type="button" :disabled="isLoadingSummary" @click="loadDailySummary">
+                  {{ isLoadingSummary ? "Consultando..." : "Buscar" }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <p v-if="summaryError" class="summary-error">{{ summaryError }}</p>
+
+          <div class="summary-grid">
+            <article class="summary-stat-card">
+              <span>Pedidos en {{ formatSummaryDateLabel(summaryDate) }}</span>
+              <strong>{{ dailySummary.totalPedidos }}</strong>
+            </article>
+            <article class="summary-stat-card">
+              <span>Cajas registradas</span>
+              <strong>{{ dailySummary.totalCajas }}</strong>
+            </article>
+            <article class="summary-stat-card">
+              <span>Meta diaria</span>
+              <strong>{{ dailySummary.metaPedidos }}</strong>
+            </article>
+          </div>
+
+          <div class="summary-alert" :class="dailySummary.isLowPicking ? 'summary-alert-low' : 'summary-alert-ok'">
+            <strong>{{ dailySummary.isLowPicking ? 'Picking bajo' : 'Meta cumplida' }}</strong>
+            <p v-if="dailySummary.isLowPicking">
+              Llevas {{ dailySummary.totalPedidos }} pedidos. Te faltan {{ dailySummary.faltanPedidos }} para llegar a la meta del dia.
+            </p>
+            <p v-else>
+              Ya alcanzaste o superaste la meta diaria con {{ dailySummary.totalPedidos }} pedidos registrados.
+            </p>
+          </div>
+
+          <div class="summary-history">
+            <div class="summary-history-header">
+              <strong>Ultimos pickings del dia</strong>
+              <span>{{ recentReports.length }} registros</span>
+            </div>
+
+            <p v-if="!recentReports.length" class="summary-empty">No tienes pickings registrados para esa fecha.</p>
+
+            <div v-else class="summary-history-list">
+              <article v-for="report in recentReports" :key="report._id || `${report.numeroPedido}-${report.fechaHoraRegistro}`" class="summary-history-item">
+                <div>
+                  <strong>{{ report.numeroPedido }}</strong>
+                  <p>{{ report.numeroCajas }} cajas</p>
+                </div>
+                <span>{{ formatReportTime(report.fechaHoraRegistro) }}</span>
+              </article>
+            </div>
+          </div>
+        </div>
+
         <div class="submission-strip" aria-live="polite">
           <div v-if="isSaving" class="submission-strip-card submission-strip-pending">
             <span class="submission-orbit" aria-hidden="true"></span>
@@ -292,6 +448,7 @@ onMounted(() => {
 }
 
 .picking-container {
+  width: min(100%, 680px);
   max-width: 680px;
   margin: 0 auto;
   text-align: center;
@@ -331,6 +488,172 @@ onMounted(() => {
 
 .form-card {
   padding: 1.5rem;
+  overflow: hidden;
+}
+
+.daily-summary-panel {
+  margin-bottom: 1.4rem;
+  padding: 1rem;
+  border-radius: 20px;
+  border: 1px solid rgba(159, 209, 255, 0.14);
+  background: rgba(8, 18, 33, 0.72);
+  text-align: left;
+}
+
+.daily-summary-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.daily-summary-header > * {
+  min-width: 0;
+}
+
+.daily-summary-header h2,
+.summary-history-header strong {
+  color: #f3f6fb;
+}
+
+.summary-kicker {
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.75rem;
+  color: #7dd3fc;
+}
+
+.daily-summary-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.daily-summary-header p,
+.summary-history-header span,
+.summary-history-item p,
+.summary-empty,
+.summary-alert p,
+.summary-stat-card span {
+  color: rgba(243, 246, 251, 0.72);
+}
+
+.summary-search {
+  min-width: 240px;
+}
+
+.summary-search-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.summary-search-row input {
+  min-width: 0;
+}
+
+.summary-button {
+  min-height: 46px;
+  padding-inline: 1rem;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.summary-stat-card,
+.summary-alert,
+.summary-history-item {
+  border-radius: 18px;
+  border: 1px solid rgba(159, 209, 255, 0.14);
+  background: rgba(15, 23, 42, 0.62);
+}
+
+.summary-stat-card {
+  padding: 0.95rem 1rem;
+}
+
+.summary-stat-card strong {
+  display: block;
+  margin-top: 0.45rem;
+  color: #f8fafc;
+  font-size: 1.7rem;
+}
+
+.summary-alert {
+  margin-top: 0.95rem;
+  padding: 0.95rem 1rem;
+}
+
+.summary-alert strong {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.summary-alert-low {
+  border-color: rgba(248, 113, 113, 0.3);
+  background: rgba(88, 28, 28, 0.42);
+  color: #fecaca;
+}
+
+.summary-alert-ok {
+  border-color: rgba(74, 222, 128, 0.28);
+  background: rgba(20, 83, 45, 0.38);
+  color: #bbf7d0;
+}
+
+.summary-history {
+  margin-top: 1rem;
+}
+
+.summary-history-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.summary-history-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.summary-history-item {
+  padding: 0.85rem 0.95rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+
+.summary-history-item > div {
+  min-width: 0;
+}
+
+.summary-history-item strong {
+  color: #f8fafc;
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.summary-history-item p,
+.summary-empty,
+.summary-alert p,
+.summary-error {
+  margin: 0.2rem 0 0;
+}
+
+.summary-history-item p,
+.summary-history-item span {
+  overflow-wrap: anywhere;
+}
+
+.summary-error {
+  color: #fecaca;
+  margin-top: 0.9rem;
 }
 
 .submission-strip {
@@ -525,6 +848,21 @@ button:disabled {
 @media (max-width: 600px) {
   .picking-page {
     padding: 1rem 0.75rem 6.5rem;
+  }
+
+  .daily-summary-header,
+  .summary-search-row,
+  .summary-history-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .summary-search {
+    min-width: 0;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
   }
 
   .form-grid {

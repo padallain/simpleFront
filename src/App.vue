@@ -9,6 +9,7 @@ const route = useRoute()
 const PAGE_TITLES = {
   '/routes': 'Crear Ruta',
   '/daily-check': 'Chequeo Diario',
+  '/fuel-report': 'Reporte Combustible',
   '/driver-route': 'Mi Ruta',
   '/report-client-location': 'Reportar Cliente',
   '/client-location-reports': 'Denuncias',
@@ -28,18 +29,31 @@ const showTopNav = computed(() => !AUTH_ROUTE_PATHS.has(route.path))
 const isLoggingOut = ref(false)
 const authUser = ref(getAuthState().user || null)
 const isAdminUser = computed(() => Boolean(authUser.value?.isAdmin))
+const isDriverUser = computed(() => String(authUser.value?.role || '').toLowerCase() === 'chofer')
+const isWarehouseUser = computed(() => String(authUser.value?.role || '').toLowerCase() === 'almacenista')
 
 function goToHome()                    { router.push('/') }
 function goToRoutes()                  { router.push('/routes') }
 function goToDailyCheck()              { router.push('/daily-check') }
+function goToFuelReport()              { router.push('/fuel-report') }
 function goToDriverRoute()             { router.push('/driver-route') }
 function goToClientReport()            { router.push('/report-client-location') }
 function goToClientLocationReports()   { router.push('/client-location-reports') }
 function goToDriverAnalytics()         { router.push('/driver-analytics') }
 function goToWarehousePickerAnalytics(){ router.push('/warehouse-picker-analytics') }
+function goToWarehousePicking()        { router.push('/warehouse-picking') }
 function goToDispatchControl()         { router.push('/dispatch-control') }
 function goToVehicleMaintenance()      { router.push('/vehicle-maintenance-history') }
 function goToAdminUsers()              { router.push('/admin-users') }
+
+function goToDefaultLanding() {
+  if (isWarehouseUser.value) {
+    router.push('/warehouse-picking')
+    return
+  }
+
+  router.push('/')
+}
 
 async function handleLogout() {
   if (isLoggingOut.value) {
@@ -78,28 +92,30 @@ watch(() => route.fullPath, () => {
   <div class="app-shell">
     <nav v-if="showTopNav" class="top-nav">
       <!-- Brand mark — always links to home -->
-      <button class="nav-brand" type="button" @click="goToHome" aria-label="Ir al inicio">
+      <button class="nav-brand" type="button" @click="goToDefaultLanding" aria-label="Ir al inicio">
         <span class="brand-mark">MR</span>
         <span class="brand-name">MakeRoute</span>
       </button>
 
       <!-- Home: scrollable module chips -->
       <div v-if="route.path === '/'" class="nav-modules" role="navigation">
-        <button class="nav-chip" type="button" @click="goToRoutes">Crear Ruta</button>
+        <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToRoutes">Crear Ruta</button>
         <button class="nav-chip" type="button" @click="goToDailyCheck">Chequeo diario</button>
+        <button class="nav-chip" type="button" @click="goToFuelReport">Combustible</button>
         <button class="nav-chip" type="button" @click="goToDriverRoute">Mi ruta</button>
-        <button class="nav-chip" type="button" @click="goToClientReport">Reportar cliente</button>
-        <button class="nav-chip" type="button" @click="goToClientLocationReports">Denuncias</button>
-        <button class="nav-chip" type="button" @click="goToDriverAnalytics">Análisis choferes</button>
-        <button class="nav-chip" type="button" @click="goToWarehousePickerAnalytics">Análisis almacenistas</button>
-        <button class="nav-chip" type="button" @click="goToDispatchControl">Dispatch control</button>
-        <button class="nav-chip" type="button" @click="goToVehicleMaintenance">Mantenimiento</button>
+        <button v-if="isAdminUser || isWarehouseUser" class="nav-chip" type="button" @click="goToWarehousePicking">Picking</button>
+        <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToClientReport">Reportar cliente</button>
+        <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToClientLocationReports">Denuncias</button>
+        <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToDriverAnalytics">Análisis choferes</button>
+        <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToWarehousePickerAnalytics">Análisis almacenistas</button>
+        <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToDispatchControl">Dispatch control</button>
+        <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToVehicleMaintenance">Mantenimiento</button>
         <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToAdminUsers">Usuarios admin</button>
       </div>
 
       <!-- Other pages: back button + page title -->
       <div v-else class="nav-back-row">
-        <button class="nav-back" type="button" @click="goToHome">
+        <button class="nav-back" type="button" @click="goToDefaultLanding">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="15 18 9 12 15 6"/>
           </svg>

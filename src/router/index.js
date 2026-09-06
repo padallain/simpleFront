@@ -9,6 +9,7 @@ const Home = () => import("../views/Home.vue");
 const Charge = () => import("../views/Charge.vue");
 const Routes = () => import("../views/Routes.vue");
 const DailyCheck = () => import("../views/DailyCheck.vue");
+const FuelReport = () => import("../views/FuelReport.vue");
 const DailyCheckHistory = () => import("../views/DailyCheckHistory.vue");
 const DriverRoute = () => import("../views/DriverRoute.vue");
 const ClientCleanup = () => import("../views/ClientCleanup.vue");
@@ -27,6 +28,38 @@ const DispatchControl = () => import("../views/DispatchControl.vue");
 const AdminUsers = () => import("../views/AdminUsers.vue");
 
 const ROUTER_SESSION_TIMEOUT_MS = Number(import.meta.env.VITE_ROUTER_SESSION_TIMEOUT_MS || 9000);
+const ADMIN_ROLE = "admin";
+const DRIVER_ROLE = "chofer";
+const WAREHOUSE_ROLE = "almacenista";
+const DRIVER_ALLOWED_PATHS = new Set([
+  "/",
+  "/daily-check",
+  "/fuel-report",
+  "/driver-route",
+]);
+const WAREHOUSE_ALLOWED_PATHS = new Set([
+  "/warehouse-picking",
+]);
+
+function isDriverAllowedRoute(targetRoute) {
+  return DRIVER_ALLOWED_PATHS.has(targetRoute.path);
+}
+
+function isWarehouseAllowedRoute(targetRoute) {
+  return WAREHOUSE_ALLOWED_PATHS.has(targetRoute.path);
+}
+
+function isRoleAllowedForRoute(targetRoute, userRole) {
+  const allowedRoles = Array.isArray(targetRoute.meta?.allowedRoles)
+    ? targetRoute.meta.allowedRoles
+    : [];
+
+  if (!allowedRoles.length) {
+    return true;
+  }
+
+  return allowedRoles.includes(userRole);
+}
 
 async function resolveSessionStateWithTimeout(currentAuthState) {
   let timeoutId = null;
@@ -57,30 +90,31 @@ async function resolveSessionStateWithTimeout(currentAuthState) {
 
 const routes = [
   { path: "/", component: Home },
-  { path: "/charge", component: Charge },
-  { path: "/routes", component: Routes },
+  { path: "/charge", component: Charge, meta: { requiresAdmin: true } },
+  { path: "/routes", component: Routes, meta: { requiresAdmin: true } },
   { path: "/login", component: Login },
   { path: "/recover-password", component: RecoverPassword },
   { path: "/recover-password/code", component: RecoverPasswordCode },
   { path: "/recover-password/new-password", component: RecoverPasswordReset },
   { path: "/daily-check", component: DailyCheck },
-  { path: "/daily-check-history", component: DailyCheckHistory },
+  { path: "/fuel-report", component: FuelReport },
+  { path: "/daily-check-history", component: DailyCheckHistory, meta: { requiresAdmin: true } },
   { path: "/driver-route", component: DriverRoute },
-  { path: "/driver-route/:routeId/issues-summary", component: RouteDispatchIssueSummary },
-  { path: "/dispatch-status", component: DispatchStatus },
-  { path: "/dispatch-control", component: DispatchControl },
-  { path: "/driver-analytics", component: DriverAnalytics },
-  { path: "/warehouse-picker-analytics", component: WarehousePickerAnalytics },
-  { path: "/warehouse-picking", component: WarehousePicking },
-  { path: "/clientes-cadena", component: ClientesCadena },
-  { path: "/vehicle-maintenance-history", component: VehicleMaintenanceHistory },
-  { path: "/report-client-location", component: ReportClientLocation },
-  { path: "/route-management", component: RouteManagement },
+  { path: "/driver-route/:routeId/issues-summary", component: RouteDispatchIssueSummary, meta: { requiresAdmin: true } },
+  { path: "/dispatch-status", component: DispatchStatus, meta: { requiresAdmin: true } },
+  { path: "/dispatch-control", component: DispatchControl, meta: { requiresAdmin: true } },
+  { path: "/driver-analytics", component: DriverAnalytics, meta: { requiresAdmin: true } },
+  { path: "/warehouse-picker-analytics", component: WarehousePickerAnalytics, meta: { requiresAdmin: true } },
+  { path: "/warehouse-picking", component: WarehousePicking, meta: { allowedRoles: [ADMIN_ROLE, WAREHOUSE_ROLE] } },
+  { path: "/clientes-cadena", component: ClientesCadena, meta: { requiresAdmin: true } },
+  { path: "/vehicle-maintenance-history", component: VehicleMaintenanceHistory, meta: { requiresAdmin: true } },
+  { path: "/report-client-location", component: ReportClientLocation, meta: { requiresAdmin: true } },
+  { path: "/route-management", component: RouteManagement, meta: { requiresAdmin: true } },
   { path: "/admin-users", component: AdminUsers, meta: { requiresAdmin: true } },
-  { path: "/client-location-reports", component: ClientLocationReports },
-  { path: "/internal/dev/client-location-reports", component: ClientLocationReports },
-  { path: "/internal/dev/dispatch-issue-reports", component: DispatchIssueReports },
-  { path: "/internal/dev/client-cleanup", component: ClientCleanup },
+  { path: "/client-location-reports", component: ClientLocationReports, meta: { requiresAdmin: true } },
+  { path: "/internal/dev/client-location-reports", component: ClientLocationReports, meta: { requiresAdmin: true } },
+  { path: "/internal/dev/dispatch-issue-reports", component: DispatchIssueReports, meta: { requiresAdmin: true } },
+  { path: "/internal/dev/client-cleanup", component: ClientCleanup, meta: { requiresAdmin: true } },
 ];
 
 const router = createRouter({
@@ -148,6 +182,38 @@ router.beforeEach(async (to, from, next) => {
       path: "/",
       query: {
         reason: "admin-only",
+      },
+    });
+    return;
+  }
+
+  const userRole = String(sessionState.user?.role || "").toLowerCase();
+
+  if (!isRoleAllowedForRoute(to, userRole)) {
+    next({
+      path: userRole === WAREHOUSE_ROLE ? "/warehouse-picking" : "/",
+      query: {
+        reason: "role-limited",
+      },
+    });
+    return;
+  }
+
+  if (userRole === DRIVER_ROLE && !isDriverAllowedRoute(to)) {
+    next({
+      path: "/",
+      query: {
+        reason: "driver-limited",
+      },
+    });
+    return;
+  }
+
+  if (userRole === WAREHOUSE_ROLE && !isWarehouseAllowedRoute(to)) {
+    next({
+      path: "/warehouse-picking",
+      query: {
+        reason: "warehouse-limited",
       },
     });
     return;
