@@ -12,6 +12,7 @@ const editingRouteId = ref("");
 const savingRouteId = ref("");
 const deletingRouteId = ref("");
 const completingRouteId = ref("");
+const completingAllRoutes = ref(false);
 const editRouteForm = reactive({
   driverId: "",
   driverName: "",
@@ -217,6 +218,89 @@ async function completeRoute(route) {
   }
 }
 
+async function completeAllRoutes() {
+  if (!canManageRoutes.value) {
+    routeAdminError.value = "Ingresa la clave interna para completar rutas.";
+    return;
+  }
+
+  const pendingRoutes = savedRoutes.value.filter((route) => String(route?.status || "").trim().toLowerCase() !== "completed");
+
+  if (!pendingRoutes.length) {
+    routeAdminFeedback.value = "No hay rutas pendientes por completar.";
+    routeAdminError.value = "";
+    return;
+  }
+
+  const confirmed = window.confirm(`Se marcaran ${pendingRoutes.length} rutas como completadas. Deseas continuar?`);
+
+  if (!confirmed) {
+    return;
+  }
+
+  completingAllRoutes.value = true;
+  routeAdminError.value = "";
+  routeAdminFeedback.value = "";
+
+  try {
+    let completedCount = 0;
+    let failedCount = 0;
+
+    for (const route of pendingRoutes) {
+      const routeId = String(route?._id || "");
+
+      if (!routeId) {
+        failedCount += 1;
+        continue;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/internal/admin/routes/${routeId}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-delete-key": adminKey.value.trim(),
+          },
+          body: JSON.stringify({
+            driverId: String(route?.driverId || "").trim(),
+            driverName: String(route?.driverName || "").trim(),
+            routeLabel: String(route?.routeLabel || "").trim(),
+            totalWeight: Number(route?.totalWeight) || 0,
+            status: "completed",
+          }),
+        });
+        const result = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          failedCount += 1;
+          console.error("Error completando ruta en lote:", routeId, result?.message || response.statusText);
+          continue;
+        }
+
+        savedRoutes.value = savedRoutes.value.map((currentRoute) => (
+          currentRoute._id === routeId ? { ...currentRoute, status: "completed" } : currentRoute
+        ));
+        completedCount += 1;
+      } catch (error) {
+        failedCount += 1;
+        console.error("Fallo completando ruta en lote:", routeId, error);
+      }
+    }
+
+    if (failedCount === 0) {
+      routeAdminFeedback.value = `Se completaron ${completedCount} rutas correctamente.`;
+      return;
+    }
+
+    routeAdminError.value = `Se completaron ${completedCount} rutas y ${failedCount} fallaron.`;
+    routeAdminFeedback.value = "Algunas rutas quedaron pendientes. Revisa la lista y vuelve a intentar.";
+  } catch (error) {
+    routeAdminError.value = `Error completando rutas: ${error.message}`;
+  } finally {
+    completingAllRoutes.value = false;
+  }
+}
+
 async function deleteRoute(route) {
   const routeId = String(route?._id || "");
 
@@ -285,9 +369,18 @@ async function deleteRoute(route) {
             <strong>Panel de rutas</strong>
             <p class="admin-copy">Los cambios actualizan la ruta guardada y sus novedades asociadas.</p>
           </div>
-          <button class="admin-button" :disabled="routeAdminLoading || !canManageRoutes" @click="loadSavedRoutes">
-            {{ routeAdminLoading ? "Cargando..." : "Ver rutas guardadas" }}
-          </button>
+          <div class="header-actions">
+            <button class="admin-button" :disabled="routeAdminLoading || !canManageRoutes" @click="loadSavedRoutes">
+              {{ routeAdminLoading ? "Cargando..." : "Ver rutas guardadas" }}
+            </button>
+            <button
+              class="admin-button secondary-admin-button"
+              :disabled="routeAdminLoading || completingAllRoutes || !canManageRoutes || !savedRoutes.some((route) => String(route?.status || '').trim().toLowerCase() !== 'completed')"
+              @click="completeAllRoutes"
+            >
+              {{ completingAllRoutes ? "Completando..." : "Completar todas las rutas" }}
+            </button>
+          </div>
         </div>
 
         <div class="input-grid input-grid-meta admin-grid">
@@ -471,6 +564,13 @@ async function deleteRoute(route) {
   flex-wrap: wrap;
 }
 
+.header-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
 .admin-button,
 .route-secondary-button,
 .route-danger-button {
@@ -485,6 +585,10 @@ async function deleteRoute(route) {
 .admin-button {
   color: #fff;
   background: linear-gradient(135deg, #45a7ff 0%, #0b57d0 100%);
+}
+
+.secondary-admin-button {
+  background: linear-gradient(135deg, #4ade80 0%, #15803d 100%);
 }
 
 .route-secondary-button {

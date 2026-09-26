@@ -202,7 +202,7 @@ watch(() => route.fullPath, () => {
 .top-nav {
   position: sticky;
   top: 0;
-  z-index: 200;
+  z-index: 300;
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -214,6 +214,7 @@ watch(() => route.fullPath, () => {
   -webkit-backdrop-filter: blur(20px);
   flex-wrap: wrap;
   overflow: visible;
+  isolation: isolate;
 }
 
 /* ── Brand ────────────────────────────────────────── */
@@ -267,6 +268,7 @@ watch(() => route.fullPath, () => {
   min-width: 0;
   position: relative;
   z-index: 20;
+  flex-wrap: nowrap;
 }
 
 .nav-modules::-webkit-scrollbar {
@@ -311,7 +313,7 @@ watch(() => route.fullPath, () => {
 
 .nav-section-panel {
   position: absolute;
-  top: calc(100% + 0.45rem);
+  top: calc(100% + 0.5rem);
   left: 0;
   display: flex;
   flex-direction: column;
@@ -325,6 +327,7 @@ watch(() => route.fullPath, () => {
   background: rgba(7, 17, 29, 0.96);
   box-shadow: 0 18px 28px rgba(0, 0, 0, 0.22);
   z-index: 40;
+  pointer-events: auto;
 }
 
 .nav-chip {
