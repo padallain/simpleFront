@@ -57,6 +57,7 @@
           </div>
 
           <p v-if="statusMessage" class="auth-status" :class="statusClass">{{ statusMessage }}</p>
+          <p v-if="loginHint" class="auth-status auth-status-info">{{ loginHint }}</p>
 
           <button class="auth-submit" type="submit" :disabled="isSubmitting">
             <span v-if="isSubmitting" class="mini-loader" aria-hidden="true"></span>
@@ -85,6 +86,7 @@ const password = ref("");
 const isSubmitting = ref(false);
 const errorMessage = ref("");
 const infoMessage = ref("");
+const loginHint = ref("");
 
 const statusMessage = computed(() => errorMessage.value || infoMessage.value);
 const statusClass = computed(() => (errorMessage.value ? "auth-status-error" : "auth-status-info"));
@@ -97,6 +99,7 @@ function resolveRedirectTarget() {
 async function submitLogin() {
   errorMessage.value = "";
   infoMessage.value = "";
+  loginHint.value = "";
 
   if (!email.value.trim() || !password.value) {
     errorMessage.value = "Debes ingresar correo y contrasena.";
@@ -113,7 +116,16 @@ async function submitLogin() {
 
     await router.replace(resolveRedirectTarget());
   } catch (error) {
-    errorMessage.value = error.message || "No se pudo iniciar sesion.";
+    const message = String(error?.message || "No se pudo iniciar sesion.");
+    errorMessage.value = message;
+
+    if (message.includes("Credenciales invalidas")) {
+      loginHint.value = "Verifica correo y contrasena, respetando mayusculas/minusculas en la contrasena.";
+    } else if (message.includes("No se pudo conectar")) {
+      loginHint.value = "Si estas en produccion, revisa VITE_API_BASE_URL, CORS y que el backend este encendido.";
+    } else if (message.includes("servidor")) {
+      loginHint.value = "El backend respondio con error. Revisa logs del servidor en login/session.";
+    }
   } finally {
     isSubmitting.value = false;
   }

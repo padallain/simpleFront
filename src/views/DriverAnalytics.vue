@@ -19,6 +19,11 @@ const createEmptyOverview = () => ({
   totalIssueReports: 0,
   totalIssueItems: 0,
   highNoveltyDrivers: 0,
+  unmarkedStopsCount: 0,
+  unresolvedMissingClientsCount: 0,
+  driversWithUnmarkedClients: 0,
+  driversWithUnresolvedMissingClients: 0,
+  lowestMarkedDriver: null,
   avgIssueRatePer100Clients: 0,
   repeatIssueClientRate: 0,
   noveltyThreshold: 20,
@@ -166,6 +171,25 @@ onMounted(() => {
           <strong>{{ overview.repeatIssueClientRate }}%</strong>
           <small>Clientes con novedad repetida sobre clientes con novedad</small>
         </article>
+        <article class="summary-card accent-amber-soft">
+          <span class="summary-label">Clientes no marcados</span>
+          <strong>{{ formatInteger(overview.unmarkedStopsCount) }}</strong>
+          <small>{{ formatInteger(overview.driversWithUnmarkedClients) }} choferes con paradas sin marcar</small>
+        </article>
+        <article class="summary-card accent-blue-soft">
+          <span class="summary-label">Clientes no guardados</span>
+          <strong>{{ formatInteger(overview.unresolvedMissingClientsCount) }}</strong>
+          <small>{{ formatInteger(overview.driversWithUnresolvedMissingClients) }} choferes con faltantes sin resolver</small>
+        </article>
+        <article class="summary-card accent-slate-soft">
+          <span class="summary-label">Menor marcado del mes</span>
+          <strong>{{ overview.lowestMarkedDriver ? `${overview.lowestMarkedDriver.markedClientRate}%` : 'Sin datos' }}</strong>
+          <small>
+            {{ overview.lowestMarkedDriver
+              ? `${overview.lowestMarkedDriver.driverName || overview.lowestMarkedDriver.driverId} marco ${overview.lowestMarkedDriver.markedRouteClientsCount} de ${overview.lowestMarkedDriver.assignedRouteClientsCount}`
+              : 'No hubo clientes asignados en rutas este mes' }}
+          </small>
+        </article>
       </div>
 
       <p v-if="errorMessage" class="feedback error-text">
@@ -264,6 +288,38 @@ onMounted(() => {
         </section>
       </div>
 
+      <section v-if="overview.lowestClientSaver" class="panel low-saver-panel">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Seguimiento de guardado</p>
+            <h2>Chofer que menos clientes guardo en su ruta</h2>
+          </div>
+          <span class="panel-badge panel-badge-alert">{{ overview.lowestClientSaver.clientSaveRate }}%</span>
+        </div>
+
+        <div class="low-saver-card">
+          <div>
+            <h3>{{ overview.lowestClientSaver.driverName || overview.lowestClientSaver.driverId }}</h3>
+            <p class="spotlight-id">ID {{ overview.lowestClientSaver.driverId }}</p>
+          </div>
+
+          <div class="low-saver-metrics">
+            <div>
+              <span>Clientes guardados</span>
+              <strong>{{ formatInteger(overview.lowestClientSaver.resolvedMissingCount) }}</strong>
+            </div>
+            <div>
+              <span>No guardados</span>
+              <strong>{{ formatInteger(overview.lowestClientSaver.unresolvedMissingClientsCount) }}</strong>
+            </div>
+            <div>
+              <span>Clientes faltantes del mes</span>
+              <strong>{{ formatInteger(overview.lowestClientSaver.missingClientsAssignedCount) }}</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="panel table-panel">
         <div class="panel-header">
           <div>
@@ -312,6 +368,14 @@ onMounted(() => {
                 <span>Clientes con novedad</span>
                 <strong>{{ formatInteger(driver.clientsWithIssuesCount) }}</strong>
               </div>
+              <div>
+                <span>No marcados</span>
+                <strong>{{ formatInteger(driver.unmarkedStopsCount) }}</strong>
+              </div>
+              <div>
+                <span>No guardados</span>
+                <strong>{{ formatInteger(driver.unresolvedMissingClientsCount) }}</strong>
+              </div>
             </div>
 
             <div class="driver-progress-group">
@@ -349,6 +413,28 @@ onMounted(() => {
               <span>{{ formatDecimal(driver.avgKgPerRoute, 1) }} kg/ruta</span>
               <span>{{ formatDistance(driver.avgDistancePerRoute) }}</span>
               <span>Reincidencias: {{ formatInteger(driver.repeatIssueClientsCount) }}</span>
+            </div>
+
+            <div v-if="driver.unmarkedStops.length || driver.unresolvedMissingClients.length" class="driver-detail-grid">
+              <div v-if="driver.unmarkedStops.length" class="driver-detail-card">
+                <strong>Clientes no marcados</strong>
+                <ul class="driver-detail-list">
+                  <li v-for="stop in driver.unmarkedStops" :key="`unmarked-${driver.driverId}-${stop.routeId}-${stop.clientId}`">
+                    <span>{{ stop.clientName || stop.clientId }}</span>
+                    <small>{{ stop.routeLabel }}</small>
+                  </li>
+                </ul>
+              </div>
+
+              <div v-if="driver.unresolvedMissingClients.length" class="driver-detail-card">
+                <strong>Clientes faltantes sin guardar</strong>
+                <ul class="driver-detail-list">
+                  <li v-for="client in driver.unresolvedMissingClients" :key="`missing-${driver.driverId}-${client.routeId}-${client.clientId}`">
+                    <span>{{ client.clientId }}</span>
+                    <small>{{ client.routeLabel }}</small>
+                  </li>
+                </ul>
+              </div>
             </div>
           </article>
         </div>
@@ -549,6 +635,18 @@ h1 {
   border-color: rgba(248, 113, 113, 0.34);
 }
 
+.accent-amber-soft {
+  border-color: rgba(251, 191, 36, 0.34);
+}
+
+.accent-blue-soft {
+  border-color: rgba(96, 165, 250, 0.34);
+}
+
+.accent-slate-soft {
+  border-color: rgba(148, 163, 184, 0.34);
+}
+
 .feedback {
   margin: 0 0 1rem;
   padding: 0.95rem 1rem;
@@ -704,6 +802,50 @@ h1 {
   margin-top: 1rem;
 }
 
+.low-saver-panel {
+  margin-bottom: 1rem;
+}
+
+.panel-badge-alert {
+  background: rgba(248, 113, 113, 0.16);
+  color: #ffc4c4;
+}
+
+.low-saver-card {
+  display: grid;
+  grid-template-columns: 0.95fr 1.05fr;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: 22px;
+  background: linear-gradient(145deg, rgba(129, 140, 248, 0.14), rgba(127, 29, 29, 0.18));
+}
+
+.low-saver-card h3 {
+  font-size: clamp(1.35rem, 3vw, 2rem);
+}
+
+.low-saver-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.low-saver-metrics div {
+  padding: 0.9rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.low-saver-metrics span {
+  color: rgba(255, 247, 237, 0.7);
+}
+
+.low-saver-metrics strong {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 1.35rem;
+}
+
 .driver-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -768,6 +910,46 @@ h1 {
   color: rgba(255, 247, 237, 0.78);
 }
 
+.driver-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.driver-detail-card {
+  padding: 0.9rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.driver-detail-card strong {
+  display: block;
+  margin-bottom: 0.55rem;
+}
+
+.driver-detail-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.driver-detail-list li {
+  padding: 0.55rem 0.65rem;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.driver-detail-list small {
+  color: rgba(255, 247, 237, 0.62);
+}
+
 .empty-panel {
   padding: 1rem;
   border-radius: 18px;
@@ -780,7 +962,10 @@ h1 {
   .analytics-layout,
   .spotlight-grid,
   .history-bars,
-  .driver-metrics-grid {
+  .driver-metrics-grid,
+  .low-saver-card,
+  .low-saver-metrics,
+  .driver-detail-grid {
     grid-template-columns: 1fr;
   }
 }

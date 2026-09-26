@@ -1597,6 +1597,14 @@ const goToAdminUsers = () => {
 
       <div v-if="clientData" class="response-card response-card-info">
         <strong>Datos del cliente:</strong>
+        <div v-if="clientData.savedBy?.username || clientData.savedBy?.email || clientData.savedBy?.id" class="client-owner-card">
+          <span class="client-owner-label">Guardado por</span>
+          <strong>{{ clientData.savedBy.username || clientData.savedBy.email || clientData.savedBy.id }}</strong>
+          <small>
+            {{ clientData.savedBy.role || 'sin rol' }}
+            <template v-if="clientData.savedBy.email"> · {{ clientData.savedBy.email }}</template>
+          </small>
+        </div>
         <pre>{{ typeof clientData === 'string' ? clientData : JSON.stringify(clientData, null, 2) }}</pre>
         <div v-if="clientData.googleMapsLink" class="maps-link-row">
           <input :value="clientData.googleMapsLink" type="text" readonly class="maps-link-input" />
@@ -2631,6 +2639,31 @@ button {
   color: #a8d0ff;
   border-color: rgba(96, 165, 250, 0.28);
   background: rgba(20, 44, 82, 0.42);
+}
+
+.client-owner-card {
+  margin-top: 0.85rem;
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(159, 209, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  display: grid;
+  gap: 0.18rem;
+}
+
+.client-owner-label {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(243, 246, 251, 0.62);
+}
+
+.client-owner-card strong {
+  color: #f3f6fb;
+}
+
+.client-owner-card small {
+  color: rgba(243, 246, 251, 0.68);
 }
 
 .maps-link-row {

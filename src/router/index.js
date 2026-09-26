@@ -24,6 +24,7 @@ const WarehousePickerAnalytics = () => import("../views/WarehousePickerAnalytics
 const WarehousePicking = () => import("../views/WarehousePicking.vue");
 const ClientesCadena = () => import("../views/ClientesCadena.vue");
 const VehicleMaintenanceHistory = () => import("../views/VehicleMaintenanceHistory.vue");
+const FleetConsumption = () => import("../views/FleetConsumption.vue");
 const DispatchControl = () => import("../views/DispatchControl.vue");
 const AdminUsers = () => import("../views/AdminUsers.vue");
 
@@ -102,6 +103,7 @@ const routes = [
   { path: "/driver-route", component: DriverRoute },
   { path: "/driver-route/:routeId/issues-summary", component: RouteDispatchIssueSummary, meta: { requiresAdmin: true } },
   { path: "/dispatch-status", component: DispatchStatus, meta: { requiresAdmin: true } },
+  { path: "/fleet-consumption", component: FleetConsumption, meta: { requiresAdmin: true } },
   { path: "/dispatch-control", component: DispatchControl, meta: { requiresAdmin: true } },
   { path: "/driver-analytics", component: DriverAnalytics, meta: { requiresAdmin: true } },
   { path: "/warehouse-picker-analytics", component: WarehousePickerAnalytics, meta: { requiresAdmin: true } },
@@ -127,31 +129,18 @@ router.beforeEach(async (to, from, next) => {
   const isAuthRoute = AUTH_ROUTE_PATHS.has(targetPath);
   const currentAuthState = getAuthState();
 
-  // Do not block the login/signup/recovery views on first load.
+  // Resolve session before rendering auth routes to avoid login flicker.
   if (isAuthRoute) {
-    if (currentAuthState.checked) {
-      if (currentAuthState.authenticated) {
-        next("/");
-        return;
-      }
+    const sessionState = currentAuthState.checked
+      ? currentAuthState
+      : await resolveSessionStateWithTimeout(currentAuthState);
 
-      next();
+    if (sessionState.authenticated) {
+      next("/");
       return;
     }
 
     next();
-
-    resolveSessionStateWithTimeout(currentAuthState)
-      .then((sessionState) => {
-        const activePath = router.currentRoute.value.path;
-
-        if (sessionState.authenticated && AUTH_ROUTE_PATHS.has(activePath)) {
-          router.replace("/");
-        }
-      })
-      .catch((error) => {
-        console.warn("[router] deferred auth check failed", error);
-      });
     return;
   }
 

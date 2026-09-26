@@ -7,6 +7,7 @@ const SESSION_REDIRECT_REASON_KEY = "makeroute.sessionRedirectReason";
 const AUTH_TOKEN_STORAGE_KEY = "makeroute.authToken";
 const PASSWORD_RECOVERY_CONTEXT_KEY = "makeroute.passwordRecovery";
 const SESSION_CHECK_TIMEOUT_MS = Number(import.meta.env.VITE_SESSION_CHECK_TIMEOUT_MS || 8000);
+const LOGIN_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_LOGIN_REQUEST_TIMEOUT_MS || 12000);
 
 const authState = {
   checked: false,
@@ -331,19 +332,49 @@ export async function fetchSession({ force = false } = {}) {
 }
 
 export async function loginWithSession({ email, password }) {
-  const response = await fetch(`${API_BASE_URL}/login`, withApiDefaults({
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-skip-auth-redirect": "true",
-    },
-    body: JSON.stringify({ email, password }),
-  }));
+  let response;
+
+  try {
+    response = await fetchWithTimeout(`${API_BASE_URL}/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-skip-auth-redirect": "true",
+      },
+      body: JSON.stringify({ email, password }),
+    }, LOGIN_REQUEST_TIMEOUT_MS);
+  } catch (error) {
+    const rawMessage = String(error?.message || "").toLowerCase();
+
+    if (rawMessage.includes("failed to fetch") || rawMessage.includes("networkerror") || rawMessage.includes("network error")) {
+      throw new Error("No se pudo conectar con el servidor. Revisa internet, URL del backend y CORS.");
+    }
+
+    throw new Error(error?.message || "No se pudo iniciar sesion por un error de red.");
+  }
 
   const result = await parseJson(response);
 
   if (!response.ok) {
-    throw new Error(result?.message || "No se pudo iniciar sesion");
+    const backendMessage = String(result?.message || "").trim();
+
+    if (response.status === 401) {
+      throw new Error("Credenciales invalidas. Verifica correo/usuario y contrasena.");
+    }
+
+    if (response.status === 400) {
+      throw new Error("Debes ingresar correo/usuario y contrasena.");
+    }
+
+    if (response.status === 403) {
+      throw new Error(backendMessage || "Tu usuario no tiene permisos para iniciar sesion.");
+    }
+
+    if (response.status >= 500) {
+      throw new Error("El servidor devolvio un error al iniciar sesion. Intenta de nuevo en unos segundos.");
+    }
+
+    throw new Error(backendMessage || "No se pudo iniciar sesion.");
   }
 
   setStoredAuthToken(result?.token || "");

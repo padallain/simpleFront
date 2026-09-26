@@ -37,3 +37,23 @@ export async function fetchDailyFuelSummary({ days = 14, placa = "", chofer = ""
 
   return parseApiResponse(response, "No se pudo cargar el resumen de combustible");
 }
+
+export async function fetchFuelConsumptionByPlaca({ days = 30, placa = "", chofer = "" } = {}) {
+  const queryParams = new URLSearchParams();
+  queryParams.set("days", String(days));
+
+  if (placa) {
+    queryParams.set("placa", String(placa).trim().toUpperCase());
+  }
+
+  if (chofer) {
+    queryParams.set("chofer", String(chofer).trim());
+  }
+
+  const response = await requestApiWithFallback(`/fuel-reports/consumption-by-placa?${queryParams.toString()}`, {}, {
+    apiBaseUrl: API_BASE_URL,
+    fallbackBaseUrl: fallbackApiBaseUrl,
+  });
+
+  return parseApiResponse(response, "No se pudo cargar el consumo por camión");
+}

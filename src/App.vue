@@ -27,10 +27,16 @@ const PAGE_TITLES = {
 const currentPageTitle = computed(() => PAGE_TITLES[route.path] ?? '')
 const showTopNav = computed(() => !AUTH_ROUTE_PATHS.has(route.path))
 const isLoggingOut = ref(false)
+const isBootstrapping = ref(true)
 const authUser = ref(getAuthState().user || null)
+const expandedSection = ref(null)
 const isAdminUser = computed(() => Boolean(authUser.value?.isAdmin))
 const isDriverUser = computed(() => String(authUser.value?.role || '').toLowerCase() === 'chofer')
 const isWarehouseUser = computed(() => String(authUser.value?.role || '').toLowerCase() === 'almacenista')
+
+function toggleSection(sectionKey) {
+  expandedSection.value = expandedSection.value === sectionKey ? null : sectionKey
+}
 
 function goToHome()                    { router.push('/') }
 function goToRoutes()                  { router.push('/routes') }
@@ -44,6 +50,7 @@ function goToWarehousePickerAnalytics(){ router.push('/warehouse-picker-analytic
 function goToWarehousePicking()        { router.push('/warehouse-picking') }
 function goToDispatchControl()         { router.push('/dispatch-control') }
 function goToVehicleMaintenance()      { router.push('/vehicle-maintenance-history') }
+function goToFleetConsumption()         { router.push('/fleet-consumption') }
 function goToAdminUsers()              { router.push('/admin-users') }
 
 function goToDefaultLanding() {
@@ -80,37 +87,86 @@ async function refreshAuthUser() {
 }
 
 onMounted(async () => {
-  await refreshAuthUser()
+  try {
+    await fetchSession()
+    const sessionState = getAuthState()
+    authUser.value = sessionState.user || null
+  } finally {
+    isBootstrapping.value = false
+  }
 })
 
 watch(() => route.fullPath, () => {
   refreshAuthUser()
+  expandedSection.value = null
 })
+
 </script>
 
 <template>
   <div class="app-shell">
-    <nav v-if="showTopNav" class="top-nav">
+    <div v-if="isBootstrapping" class="app-bootstrap-loader" role="status" aria-live="polite" aria-busy="true">
+      <div class="app-bootstrap-card">
+        <div class="app-bootstrap-brand">
+          <span class="brand-mark">MR</span>
+          <span class="brand-name">MakeRoute</span>
+        </div>
+        <div class="app-bootstrap-spinner" aria-hidden="true"></div>
+        <p>Cargando sesión...</p>
+      </div>
+    </div>
+
+    <nav v-if="!isBootstrapping && showTopNav" class="top-nav">
       <!-- Brand mark — always links to home -->
       <button class="nav-brand" type="button" @click="goToDefaultLanding" aria-label="Ir al inicio">
         <span class="brand-mark">MR</span>
         <span class="brand-name">MakeRoute</span>
       </button>
 
-      <!-- Home: scrollable module chips -->
+      <!-- Home: section dropdown navigation -->
       <div v-if="route.path === '/'" class="nav-modules" role="navigation">
-        <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToRoutes">Crear Ruta</button>
-        <button class="nav-chip" type="button" @click="goToDailyCheck">Chequeo diario</button>
-        <button class="nav-chip" type="button" @click="goToFuelReport">Combustible</button>
-        <button class="nav-chip" type="button" @click="goToDriverRoute">Mi ruta</button>
-        <button v-if="isAdminUser || isWarehouseUser" class="nav-chip" type="button" @click="goToWarehousePicking">Picking</button>
-        <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToClientReport">Reportar cliente</button>
-        <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToClientLocationReports">Denuncias</button>
-        <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToDriverAnalytics">Análisis choferes</button>
-        <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToWarehousePickerAnalytics">Análisis almacenistas</button>
-        <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToDispatchControl">Dispatch control</button>
-        <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToVehicleMaintenance">Mantenimiento</button>
-        <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToAdminUsers">Usuarios admin</button>
+        <div class="nav-group">
+          <button class="nav-section-toggle" :class="{ active: expandedSection === 'operacion' }" type="button" @click="toggleSection('operacion')">
+            Operación
+            <span class="nav-section-caret">▾</span>
+          </button>
+
+          <div v-if="expandedSection === 'operacion'" class="nav-section-panel">
+            <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToRoutes">Crear Ruta</button>
+            <button class="nav-chip" type="button" @click="goToDailyCheck">Chequeo diario</button>
+            <button class="nav-chip" type="button" @click="goToFuelReport">Combustible</button>
+            <button class="nav-chip" type="button" @click="goToDriverRoute">Mi ruta</button>
+          </div>
+        </div>
+
+        <div class="nav-group">
+          <button class="nav-section-toggle" :class="{ active: expandedSection === 'logistica' }" type="button" @click="toggleSection('logistica')">
+            Logística
+            <span class="nav-section-caret">▾</span>
+          </button>
+
+          <div v-if="expandedSection === 'logistica'" class="nav-section-panel">
+            <button v-if="isAdminUser || isWarehouseUser" class="nav-chip" type="button" @click="goToWarehousePicking">Picking</button>
+            <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToClientReport">Reportar cliente</button>
+            <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToClientLocationReports">Denuncias</button>
+            <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToDispatchControl">Dispatch control</button>
+            <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToVehicleMaintenance">Mantenimiento</button>
+            <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToFleetConsumption">Mi flota</button>
+          </div>
+        </div>
+
+        <div v-if="isAdminUser" class="nav-group">
+          <button class="nav-section-toggle" :class="{ active: expandedSection === 'administracion' }" type="button" @click="toggleSection('administracion')">
+            Administración
+            <span class="nav-section-caret">▾</span>
+          </button>
+
+          <div v-if="expandedSection === 'administracion'" class="nav-section-panel">
+            <button class="nav-chip" type="button" @click="goToDriverAnalytics">Análisis choferes</button>
+            <button class="nav-chip" type="button" @click="goToWarehousePickerAnalytics">Análisis almacenistas</button>
+            <button class="nav-chip" type="button" @click="goToAdminUsers">Usuarios admin</button>
+          </div>
+        </div>
       </div>
 
       <!-- Other pages: back button + page title -->
@@ -125,16 +181,13 @@ watch(() => route.fullPath, () => {
       </div>
 
       <div class="nav-actions">
-        <button v-if="isAdminUser && route.path !== '/admin-users'" class="nav-admin-link" type="button" @click="goToAdminUsers">
-          Usuarios admin
-        </button>
         <button class="nav-logout" type="button" :disabled="isLoggingOut" @click="handleLogout">
           {{ isLoggingOut ? 'Saliendo...' : 'Cerrar sesion' }}
         </button>
       </div>
     </nav>
 
-    <router-view />
+    <router-view v-if="!isBootstrapping" />
   </div>
 </template>
 
@@ -152,13 +205,15 @@ watch(() => route.fullPath, () => {
   z-index: 200;
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 0 1.25rem;
-  height: 56px;
+  gap: 0.75rem;
+  padding: 0.45rem 1.25rem;
+  min-height: 56px;
   background: rgba(8, 15, 28, 0.9);
   border-bottom: 1px solid rgba(159, 209, 255, 0.1);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
+  flex-wrap: wrap;
+  overflow: visible;
 }
 
 /* ── Brand ────────────────────────────────────────── */
@@ -200,26 +255,83 @@ watch(() => route.fullPath, () => {
 
 /* ── Module chips (home) ──────────────────────────── */
 .nav-modules {
-  flex: 1;
+  flex: 1 1 auto;
   display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  overflow-x: auto;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0.8rem;
+  overflow: visible;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  padding: 0.2rem 0;
-  mask-image: linear-gradient(to right, black 80%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to right, black 80%, transparent 100%);
+  padding: 0.1rem 0;
+  min-width: 0;
+  position: relative;
+  z-index: 20;
 }
 
 .nav-modules::-webkit-scrollbar {
   display: none;
 }
 
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.38rem;
+  min-width: 0;
+  position: relative;
+  z-index: 2;
+}
+
+.nav-section-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.38rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid rgba(159, 209, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e2ecff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.nav-section-toggle.active {
+  background: rgba(96, 165, 250, 0.15);
+  border-color: rgba(96, 165, 250, 0.4);
+  color: #dbeafe;
+}
+
+.nav-section-caret {
+  font-size: 0.7rem;
+  opacity: 0.8;
+}
+
+.nav-section-panel {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.42rem;
+  min-width: min(62vw, 260px);
+  width: max-content;
+  max-width: min(62vw, 260px);
+  padding: 0.6rem;
+  border-radius: 14px;
+  border: 1px solid rgba(159, 209, 255, 0.14);
+  background: rgba(7, 17, 29, 0.96);
+  box-shadow: 0 18px 28px rgba(0, 0, 0, 0.22);
+  z-index: 40;
+}
+
 .nav-chip {
-  flex-shrink: 0;
-  padding: 0.36rem 0.85rem;
-  border-radius: 100px;
+  width: 100%;
+  text-align: left;
+  padding: 0.46rem 0.7rem;
+  border-radius: 10px;
   border: 1px solid rgba(159, 209, 255, 0.14);
   background: rgba(255, 255, 255, 0.05);
   color: rgba(243, 246, 251, 0.7);
@@ -285,6 +397,7 @@ watch(() => route.fullPath, () => {
   display: flex;
   align-items: center;
   margin-left: auto;
+  flex-shrink: 0;
 }
 
 .nav-logout {
@@ -333,6 +446,63 @@ watch(() => route.fullPath, () => {
   cursor: wait;
 }
 
+.app-bootstrap-loader {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at top, rgba(96, 165, 250, 0.2), transparent 30%),
+    linear-gradient(180deg, #07111d 0%, #0b1730 100%);
+  color: rgba(243, 246, 251, 0.9);
+}
+
+.app-bootstrap-card {
+  min-width: min(92vw, 260px);
+  display: grid;
+  place-items: center;
+  gap: 0.8rem;
+  padding: 1.4rem 1.2rem;
+  border: 1px solid rgba(159, 209, 255, 0.16);
+  border-radius: 22px;
+  background: rgba(8, 15, 28, 0.8);
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.28);
+}
+
+.app-bootstrap-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-weight: 700;
+}
+
+.app-bootstrap-brand .brand-mark {
+  width: 36px;
+  height: 36px;
+  font-size: 0.8rem;
+}
+
+.app-bootstrap-spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.12);
+  border-top-color: #8ec5ff;
+  border-right-color: #60a5fa;
+  animation: spin 0.8s linear infinite;
+}
+
+.app-bootstrap-card p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: rgba(243, 246, 251, 0.8);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ── Responsive ───────────────────────────────────── */
 @media (max-width: 480px) {
   .brand-name {
@@ -341,10 +511,9 @@ watch(() => route.fullPath, () => {
 
   .top-nav {
     flex-wrap: wrap;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.75rem;
     row-gap: 0.55rem;
-    height: auto;
     min-height: 56px;
     padding: 0.55rem 0.85rem;
   }
@@ -354,7 +523,6 @@ watch(() => route.fullPath, () => {
     flex-shrink: 0;
   }
 
-  .nav-admin-link,
   .nav-logout {
     white-space: nowrap;
   }
@@ -368,6 +536,7 @@ watch(() => route.fullPath, () => {
 
   .nav-modules {
     padding-bottom: 0.15rem;
+    gap: 0.5rem;
     mask-image: none;
     -webkit-mask-image: none;
   }
