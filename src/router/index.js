@@ -27,6 +27,7 @@ const VehicleMaintenanceHistory = () => import("../views/VehicleMaintenanceHisto
 const FleetConsumption = () => import("../views/FleetConsumption.vue");
 const DispatchControl = () => import("../views/DispatchControl.vue");
 const AdminUsers = () => import("../views/AdminUsers.vue");
+const Notifications = () => import("../views/Notifications.vue");
 
 const ROUTER_SESSION_TIMEOUT_MS = Number(import.meta.env.VITE_ROUTER_SESSION_TIMEOUT_MS || 9000);
 const ADMIN_ROLE = "admin";
@@ -113,6 +114,7 @@ const routes = [
   { path: "/report-client-location", component: ReportClientLocation, meta: { requiresAdmin: true } },
   { path: "/route-management", component: RouteManagement, meta: { requiresAdmin: true } },
   { path: "/admin-users", component: AdminUsers, meta: { requiresAdmin: true } },
+  { path: "/notifications", component: Notifications, meta: { requiresAdmin: true } },
   { path: "/client-location-reports", component: ClientLocationReports, meta: { requiresAdmin: true } },
   { path: "/internal/dev/client-location-reports", component: ClientLocationReports, meta: { requiresAdmin: true } },
   { path: "/internal/dev/dispatch-issue-reports", component: DispatchIssueReports, meta: { requiresAdmin: true } },

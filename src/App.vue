@@ -22,6 +22,7 @@ const PAGE_TITLES = {
   '/daily-check-history': 'Historial Chequeos',
   '/route-management': 'Gestión de Rutas',
   '/admin-users': 'Usuarios Admin',
+  '/notifications': 'Notificaciones',
 }
 
 const currentPageTitle = computed(() => PAGE_TITLES[route.path] ?? '')
@@ -52,6 +53,7 @@ function goToDispatchControl()         { router.push('/dispatch-control') }
 function goToVehicleMaintenance()      { router.push('/vehicle-maintenance-history') }
 function goToFleetConsumption()         { router.push('/fleet-consumption') }
 function goToAdminUsers()              { router.push('/admin-users') }
+function goToNotifications()           { router.push('/notifications') }
 
 function goToDefaultLanding() {
   if (isWarehouseUser.value) {
@@ -164,6 +166,7 @@ watch(() => route.fullPath, () => {
           <div v-if="expandedSection === 'administracion'" class="nav-section-panel">
             <button class="nav-chip" type="button" @click="goToDriverAnalytics">Análisis choferes</button>
             <button class="nav-chip" type="button" @click="goToWarehousePickerAnalytics">Análisis almacenistas</button>
+            <button class="nav-chip" type="button" @click="goToNotifications">Notificaciones</button>
             <button class="nav-chip" type="button" @click="goToAdminUsers">Usuarios admin</button>
           </div>
         </div>

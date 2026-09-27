@@ -57,6 +57,14 @@
               <label for="anio" class="form-label">Año</label>
               <input id="anio" type="number" v-model="anio" min="1900" max="2100" required />
             </div>
+            <div class="field-group">
+              <label for="personalTrabajo" class="form-label">Personal de trabajo</label>
+              <input id="personalTrabajo" type="text" v-model="personalTrabajo" placeholder="Ej: Jose Martinez" />
+            </div>
+            <div class="field-group">
+              <label for="destino" class="form-label">Destino</label>
+              <input id="destino" type="text" v-model="destino" placeholder="Ej: Cabimas" />
+            </div>
           </div>
         </section>
 
@@ -202,6 +210,8 @@ const sessionUser = ref(getAuthState().user || null);
 const placa = ref("");
 const modelo = ref("");
 const anio = ref("");
+const personalTrabajo = ref("");
+const destino = ref("");
 
 const checklist = ref([
   { nombre: "Luces", estado: null, comentario: "" },
@@ -243,6 +253,8 @@ function resetFormulario() {
   placa.value = "";
   modelo.value = "";
   anio.value = "";
+  personalTrabajo.value = "";
+  destino.value = "";
   observaciones.value = "";
   checklist.value = checklist.value.map((item) => ({
     ...item,
@@ -271,6 +283,8 @@ async function enviarNovedades() {
       placa: placa.value.trim(),
       modelo: modelo.value.trim(),
       anio: Number(anio.value),
+      personalTrabajo: personalTrabajo.value.trim(),
+      destino: destino.value.trim(),
       checklist: checklist.value.map((item) => ({
         nombre: item.nombre,
         estado: item.estado,

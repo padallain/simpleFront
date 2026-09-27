@@ -87,6 +87,14 @@
             <span>Ano</span>
             <input v-model="editForm.anio" type="number" min="1900" step="1" />
           </label>
+          <label>
+            <span>Personal de trabajo</span>
+            <input v-model="editForm.personalTrabajo" type="text" />
+          </label>
+          <label>
+            <span>Destino</span>
+            <input v-model="editForm.destino" type="text" />
+          </label>
           <label class="edit-full">
             <span>Observaciones</span>
             <textarea v-model="editForm.observaciones" rows="3" />
@@ -186,6 +194,11 @@
         <div class="report-meta">
           <span><strong>Chofer:</strong> {{ reporte.chofer }}</span>
           <span><strong>Ano:</strong> {{ reporte.anio }}</span>
+        </div>
+
+        <div class="report-meta" v-if="reporte.personalTrabajo || reporte.destino">
+          <span v-if="reporte.personalTrabajo"><strong>Personal:</strong> {{ reporte.personalTrabajo }}</span>
+          <span v-if="reporte.destino"><strong>Destino:</strong> {{ reporte.destino }}</span>
         </div>
 
         <div class="checklist-section">

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { fetchSession, getAuthState } from "../services/auth";
 import { createFuelReport, fetchDailyFuelSummary, fetchFuelConsumptionByPlaca } from "../services/fuelReportApi";
 
@@ -11,7 +11,6 @@ const odometerKm = ref("");
 const totalAmount = ref("");
 const station = ref("");
 const receiptNumber = ref("");
-const receiptPhotoDataUrl = ref("");
 const notes = ref("");
 const loading = ref(false);
 const successMessage = ref("");
@@ -22,15 +21,6 @@ const summaryError = ref("");
 const placaSummary = ref([]);
 const placaSummaryLoading = ref(false);
 const placaSummaryError = ref("");
-const videoRef = ref(null);
-const canvasRef = ref(null);
-const cameraStream = ref(null);
-const cameraReady = ref(false);
-const cameraPreviewVisible = ref(false);
-const cameraError = ref("");
-const IMAGE_MAX_KB = 1024;
-
-const isSecureCameraContext = () => window.isSecureContext || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 
 const chofer = computed(() => {
   const user = sessionUser.value || {};
@@ -46,69 +36,7 @@ const canSubmit = computed(() => (
   && Number(totalAmount.value) > 0
   && Boolean(station.value.trim())
   && Boolean(receiptNumber.value.trim())
-  && Boolean(receiptPhotoDataUrl.value)
 ));
-
-const receiptPhotoSizeKb = computed(() => {
-  if (!receiptPhotoDataUrl.value) {
-    return 0;
-  }
-
-  const base64Payload = String(receiptPhotoDataUrl.value).split(",")[1] || "";
-  const estimatedBytes = Math.floor((base64Payload.length * 3) / 4);
-  return Math.round((estimatedBytes / 1024) * 100) / 100;
-});
-
-function stopCamera() {
-  if (cameraStream.value) {
-    cameraStream.value.getTracks().forEach((track) => track.stop());
-    cameraStream.value = null;
-  }
-
-  if (videoRef.value) {
-    videoRef.value.srcObject = null;
-  }
-
-  cameraReady.value = false;
-  cameraPreviewVisible.value = false;
-}
-
-async function startCamera() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    cameraError.value = "Este navegador no soporta acceso a la cámara.";
-    return;
-  }
-
-  if (!isSecureCameraContext()) {
-    cameraError.value = "La cámara solo funciona desde localhost o HTTPS. Abre esta pantalla en localhost o con HTTPS.";
-    return;
-  }
-
-  try {
-    stopCamera();
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: "environment",
-      },
-      audio: false,
-    });
-
-    cameraStream.value = stream;
-    cameraPreviewVisible.value = true;
-
-    if (videoRef.value) {
-      videoRef.value.srcObject = stream;
-      await videoRef.value.play();
-    }
-
-    cameraReady.value = true;
-    cameraError.value = "";
-  } catch (error) {
-    cameraReady.value = false;
-    cameraPreviewVisible.value = false;
-    cameraError.value = "No se pudo abrir la cámara del teléfono. Revisa los permisos del navegador y que la página esté en localhost o HTTPS.";
-  }
-}
 
 function resetForm() {
   fuelType.value = "gasoil";
@@ -117,48 +45,9 @@ function resetForm() {
   totalAmount.value = "";
   station.value = "";
   receiptNumber.value = "";
-  receiptPhotoDataUrl.value = "";
   notes.value = "";
   errorMessage.value = "";
   successMessage.value = "";
-}
-
-function clearReceiptPhoto() {
-  receiptPhotoDataUrl.value = "";
-  cameraError.value = "";
-  cameraPreviewVisible.value = false;
-  stopCamera();
-}
-
-function captureReceiptPhoto() {
-  if (!videoRef.value || !canvasRef.value) {
-    cameraError.value = "La cámara aún no está lista.";
-    return;
-  }
-
-  const video = videoRef.value;
-  const canvas = canvasRef.value;
-  const width = video.videoWidth || 1280;
-  const height = video.videoHeight || 720;
-
-  canvas.width = width;
-  canvas.height = height;
-
-  const context = canvas.getContext("2d");
-  context.drawImage(video, 0, 0, width, height);
-
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-  const base64Payload = String(dataUrl).split(",")[1] || "";
-  const estimatedBytes = Math.floor((base64Payload.length * 3) / 4);
-  const sizeKb = Math.round((estimatedBytes / 1024) * 100) / 100;
-
-  if (sizeKb > IMAGE_MAX_KB) {
-    errorMessage.value = `La foto supera el maximo permitido (${IMAGE_MAX_KB} KB).`;
-    return;
-  }
-
-  receiptPhotoDataUrl.value = dataUrl;
-  errorMessage.value = "";
 }
 
 async function loadSessionUser() {
@@ -210,7 +99,7 @@ async function loadPlacaSummary() {
 
 async function submitFuelReport() {
   if (!canSubmit.value) {
-    errorMessage.value = "Completa chofer, placa, litros, odometro, monto, estacion, comprobante y foto.";
+    errorMessage.value = "Completa chofer, placa, litros, odometro, monto, estacion y comprobante.";
     return;
   }
 
@@ -227,7 +116,6 @@ async function submitFuelReport() {
       totalAmount: Number(totalAmount.value),
       station: station.value.trim(),
       receiptNumber: receiptNumber.value.trim().toUpperCase(),
-      receiptPhotoDataUrl: receiptPhotoDataUrl.value,
       notes: notes.value.trim(),
     });
 
@@ -235,7 +123,6 @@ async function submitFuelReport() {
     resetForm();
     await loadSummary();
     await loadPlacaSummary();
-    await startCamera();
   } catch (error) {
     errorMessage.value = error.message || "No se pudo guardar la recarga.";
   } finally {
@@ -249,9 +136,6 @@ onMounted(async () => {
   await loadPlacaSummary();
 });
 
-onBeforeUnmount(() => {
-  stopCamera();
-});
 </script>
 
 <template>
@@ -300,35 +184,6 @@ onBeforeUnmount(() => {
             Nro. comprobante
             <input v-model="receiptNumber" type="text" maxlength="40" placeholder="Ej. FAC-009182" required />
           </label>
-          <div class="field-wide">
-            <label>Foto del comprobante</label>
-            <div class="camera-panel">
-              <div v-if="cameraPreviewVisible && !receiptPhotoDataUrl" class="camera-box">
-                <video ref="videoRef" autoplay playsinline muted></video>
-                <canvas ref="canvasRef" class="camera-canvas" aria-hidden="true"></canvas>
-              </div>
-
-              <div v-else-if="receiptPhotoDataUrl" class="photo-preview">
-                <img :src="receiptPhotoDataUrl" alt="Comprobante de combustible" />
-              </div>
-
-              <div class="camera-actions">
-                <button v-if="!cameraReady" type="button" class="secondary-btn" @click="startCamera">Activar camara</button>
-                <button v-else type="button" @click="captureReceiptPhoto">Tomar foto</button>
-                <button v-if="receiptPhotoDataUrl" type="button" class="secondary-btn" @click="clearReceiptPhoto">Volver a tomar</button>
-              </div>
-
-              <p v-if="cameraError" class="feedback feedback-error">{{ cameraError }}</p>
-              <p v-else class="camera-hint">Se toma la foto directamente con la camara del telefono para evitar subir imagenes viejas.</p>
-            </div>
-          </div>
-
-          <div v-if="receiptPhotoDataUrl" class="photo-preview field-wide">
-            <div class="photo-preview-meta">
-              <span>Tamano aproximado: {{ receiptPhotoSizeKb }} KB</span>
-              <button type="button" class="secondary-btn" @click="clearReceiptPhoto">Quitar foto</button>
-            </div>
-          </div>
           <label class="field-wide">
             Nota (opcional)
             <textarea v-model="notes" rows="2" placeholder="Observaciones de la recarga" />
@@ -339,6 +194,8 @@ onBeforeUnmount(() => {
           <button type="submit" :disabled="loading || !canSubmit">{{ loading ? "Guardando..." : "Guardar recarga" }}</button>
           <button type="button" class="secondary-btn" :disabled="summaryLoading" @click="loadSummary">{{ summaryLoading ? "Actualizando..." : "Actualizar resumen" }}</button>
         </div>
+
+        <p class="muted-field-note">Modo actual: registro teorico sin comprobante fotografico.</p>
 
         <p v-if="errorMessage" class="feedback feedback-error">{{ errorMessage }}</p>
         <p v-if="successMessage" class="feedback feedback-success">{{ successMessage }}</p>
