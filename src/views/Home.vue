@@ -1009,6 +1009,10 @@ const goToRouteManagement = () => {
   router.push('/route-management');
 };
 
+const goToTransportKpis = () => {
+  router.push('/transport-kpis');
+};
+
 const goToDailyCheckHistory = () => {
   router.push('/daily-check-history');
 };
@@ -1387,6 +1391,12 @@ const goToAdminUsers = () => {
             <em>Reportes públicos</em>
           </span>
           <span class="mod-chevron">›</span>
+        </button>
+
+        <button class="module-card" type="button" @click="goToTransportKpis">
+          <span class="mod-icon" style="--c:#34d399;--b:rgba(52,211,153,0.12)"><i class="mdi mdi-chart-box-outline" aria-hidden="true" /></span>
+          <span class="mod-text"><strong>KPIs de transporte</strong><em>Costos y rentabilidad</em></span>
+          <span class="mod-chevron" aria-hidden="true"><i class="mdi mdi-chevron-right" /></span>
         </button>
 
         <button class="module-card" type="button" @click="goToRouteManagement">

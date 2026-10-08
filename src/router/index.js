@@ -28,6 +28,8 @@ const FleetConsumption = () => import("../views/FleetConsumption.vue");
 const DispatchControl = () => import("../views/DispatchControl.vue");
 const AdminUsers = () => import("../views/AdminUsers.vue");
 const Notifications = () => import("../views/Notifications.vue");
+const TransportKpis = () => import("../views/TransportKpis.vue");
+const FinishRoutes = () => import("../views/FinishRoutes.vue");
 
 const ROUTER_SESSION_TIMEOUT_MS = Number(import.meta.env.VITE_ROUTER_SESSION_TIMEOUT_MS || 9000);
 const ADMIN_ROLE = "admin";
@@ -94,6 +96,8 @@ const routes = [
   { path: "/", component: Home },
   { path: "/charge", component: Charge, meta: { requiresAdmin: true } },
   { path: "/routes", component: Routes, meta: { requiresAdmin: true } },
+  { path: "/transport-kpis", component: TransportKpis, meta: { requiresAdmin: true } },
+  { path: "/finish-routes", component: FinishRoutes, meta: { requiresAdmin: true } },
   { path: "/login", component: Login },
   { path: "/recover-password", component: RecoverPassword },
   { path: "/recover-password/code", component: RecoverPasswordCode },

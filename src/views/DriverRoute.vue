@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import RouteOsmMap from "../components/RouteOsmMap.vue";
 import { fetchSession, getAuthState } from "../services/auth";
+import { driverStopKey, normalizeDriverStops, normalizedDriverRoute } from '../services/driverRouteStops';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 const router = useRouter();
@@ -21,6 +22,8 @@ const issueForms = reactive({});
 const editingRoute = ref(false);
 const editableStops = ref([]);
 const priorityStopClientId = ref("");
+let priorityRequestSequence = 0;
+const priorityStopLabel = computed(() => editableStops.value.find(stop => getStopKey(stop) === priorityStopClientId.value)?.nombre || '');
 const reorderMode = ref("drag");
 const routeActionLoading = ref("");
 const draggedStopIndex = ref(-1);
@@ -207,7 +210,8 @@ async function fetchPreviewDistance() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        stops: editableStops.value.map((stop) => ({ clientId: stop.clientId })),
+        stops: editableStops.value.map(stop => ({ clientId: stop.clientId, sucursal: stop.sucursal || '', stopKey: getStopKey(stop) })),
+        priorityStop: selectedPriorityStop(),
       }),
     });
     const result = await response.json().catch(() => null);
@@ -251,9 +255,7 @@ function schedulePreviewDistance() {
 }
 
 function cloneStops(stops) {
-  return Array.isArray(stops)
-    ? stops.map((stop) => ({ ...stop }))
-    : [];
+  return normalizeDriverStops(stops, routeData.value?.loadGuide?.orders);
 }
 
 function resolveSessionDriverId() {
@@ -303,6 +305,7 @@ function selectRoute(routeId) {
 }
 
 function syncRouteCollection(updatedRoute) {
+  updatedRoute = normalizedDriverRoute(updatedRoute);
   const normalizedRouteId = String(updatedRoute?._id || "");
 
   if (!normalizedRouteId) {
@@ -327,7 +330,11 @@ function syncRouteCollection(updatedRoute) {
 }
 
 function getStopKey(stop) {
-  return String(stop?.clientId || "");
+  return driverStopKey(stop);
+}
+function selectedPriorityStop() {
+  const selected = editableStops.value.find(stop => getStopKey(stop) === priorityStopClientId.value);
+  return selected ? { clientId: selected.clientId, sucursal: selected.sucursal || '', stopKey: getStopKey(selected) } : null;
 }
 
 function startRouteEditing() {
@@ -336,7 +343,10 @@ function startRouteEditing() {
   }
 
   editableStops.value = cloneStops(routeData.value.stops);
-  priorityStopClientId.value = String(editableStops.value[0]?.clientId || "").trim();
+  const candidates = editableStops.value.filter(stop => stop.clientId === routeData.value.anchorClientId);
+  const anchor = candidates.find(stop => (stop.sucursal || '') === (routeData.value.anchorSucursal || ''))
+    || (!routeData.value.anchorSucursal && candidates.length === 1 ? candidates[0] : null);
+  priorityStopClientId.value = anchor ? getStopKey(anchor) : '';
   editingRoute.value = true;
   errorMessage.value = "";
   feedback.value = "";
@@ -456,24 +466,24 @@ async function addClientToRoute() {
   }
 }
 
-async function removeClientFromRoute(clientId) {
+async function removeClientFromRoute(stop) {
   if (!routeData.value?._id) {
     errorMessage.value = "No hay una ruta activa para editar.";
     return;
   }
 
-  const normalizedClientId = String(clientId || "").trim();
+  const normalizedClientId = String(stop?.clientId || '').trim();
 
   if (!normalizedClientId) {
     return;
   }
 
-  routeActionLoading.value = `remove:${normalizedClientId}`;
+  routeActionLoading.value = `remove:${getStopKey(stop)}`;
   errorMessage.value = "";
   feedback.value = "";
 
   try {
-    const response = await fetch(`${API_BASE_URL}/driver-routes/${routeData.value._id}/stops/${encodeURIComponent(normalizedClientId)}`, {
+    const response = await fetch(`${API_BASE_URL}/driver-routes/${routeData.value._id}/stops/${encodeURIComponent(normalizedClientId)}?${new URLSearchParams({ sucursal: stop.sucursal || '', stopKey: getStopKey(stop) })}`, {
       method: "DELETE",
     });
     const result = await response.json().catch(() => null);
@@ -487,8 +497,8 @@ async function removeClientFromRoute(clientId) {
     syncRouteCollection(updatedRoute);
     editableStops.value = cloneStops(Array.isArray(updatedRoute?.stops) ? updatedRoute.stops : []);
 
-    if (priorityStopClientId.value === normalizedClientId) {
-      priorityStopClientId.value = String(editableStops.value[0]?.clientId || "").trim();
+    if (priorityStopClientId.value === getStopKey(stop)) {
+      priorityStopClientId.value = '';
     }
 
     pendingRemovalClientId.value = "";
@@ -501,14 +511,14 @@ async function removeClientFromRoute(clientId) {
   }
 }
 
-function requestStopRemoval(clientId) {
-  const normalizedClientId = String(clientId || "").trim();
+function requestStopRemoval(stop) {
+  const normalizedClientId = String(stop?.clientId || '').trim();
 
   if (!normalizedClientId) {
     return;
   }
 
-  pendingRemovalClientId.value = normalizedClientId;
+  pendingRemovalClientId.value = getStopKey(stop);
 }
 
 function cancelStopRemoval() {
@@ -563,16 +573,28 @@ function handleAddStopClientIdInput() {
   addStopMessage.value = "";
 }
 
-function togglePriorityStop(clientId) {
-  const normalizedClientId = String(clientId || "").trim();
-
-  if (!normalizedClientId) {
-    return;
-  }
-
-  priorityStopClientId.value = priorityStopClientId.value === normalizedClientId
-    ? ""
-    : normalizedClientId;
+async function togglePriorityStop(stop) {
+  if (!editingRoute.value || !routeData.value?._id || routeActionLoading.value) return;
+  const previous = priorityStopClientId.value;
+  const next = getStopKey(stop);
+  priorityStopClientId.value = previous === next ? '' : next;
+  const sequence = ++priorityRequestSequence;
+  const routeId = String(routeData.value._id);
+  previewDistanceRequestSeq += 1;
+  clearPreviewDistanceTimer();
+  routeActionLoading.value = 'priority'; errorMessage.value = ''; feedback.value = '';
+  try {
+    const response = await fetch(`${API_BASE_URL}/driver-routes/${routeId}/customize/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stops: editableStops.value.map(item => ({ clientId: item.clientId, sucursal: item.sucursal || '', stopKey: getStopKey(item) })), priorityStop: selectedPriorityStop(), recalculatePriority: true }) });
+    const result = await response.json().catch(() => null);
+    if (sequence !== priorityRequestSequence || !editingRoute.value || String(routeData.value?._id) !== routeId) return;
+    if (!response.ok) throw new Error(result?.message || 'No se pudo reorganizar la ruta desde la prioridad.');
+    editableStops.value = normalizeEditableStopOrder(result.preview.route);
+    previewDistanceKm.value = result.preview.totalDistanceKm;
+    feedback.value = priorityStopClientId.value ? `Ruta reorganizada desde ${stop.nombre}.` : 'Prioridad retirada.';
+  } catch (failure) {
+    if (sequence === priorityRequestSequence && editingRoute.value && String(routeData.value?._id) === routeId) { priorityStopClientId.value = previous; errorMessage.value = failure.message; }
+  } finally { if (sequence === priorityRequestSequence && routeActionLoading.value === 'priority') routeActionLoading.value = ''; }
 }
 
 function applyMirroredRouteOrder() {
@@ -585,10 +607,10 @@ function applyMirroredRouteOrder() {
   let nextStops = [];
 
   if (normalizedPriorityId) {
-    const priorityStop = stops.find((stop) => String(stop?.clientId || "").trim() === normalizedPriorityId);
+    const priorityStop = stops.find(stop => getStopKey(stop) === normalizedPriorityId);
 
     if (priorityStop) {
-      const remainingStops = stops.filter((stop) => String(stop?.clientId || "").trim() !== normalizedPriorityId);
+      const remainingStops = stops.filter(stop => getStopKey(stop) !== normalizedPriorityId);
       nextStops = [priorityStop, ...remainingStops.reverse()];
     } else {
       nextStops = stops.reverse();
@@ -603,15 +625,12 @@ function applyMirroredRouteOrder() {
   dragOverStopIndex.value = -1;
   errorMessage.value = "";
   feedback.value = normalizedPriorityId
-    ? `Orden espejo aplicado con prioridad en cliente ${normalizedPriorityId}.`
+    ? `Orden espejo aplicado con prioridad en ${priorityStopLabel.value}.`
     : "Orden espejo aplicado sin cliente prioritario.";
 }
 
 function normalizeEditableStopOrder(stops) {
-  return stops.map((stop, index) => ({
-    ...stop,
-    order: index + 1,
-  }));
+  return normalizeDriverStops(stops, routeData.value?.loadGuide?.orders);
 }
 
 function moveEditableStop(fromIndex, toIndex) {
@@ -686,6 +705,7 @@ function endStopDrag() {
 }
 
 async function saveRouteCustomization() {
+  if (routeActionLoading.value) return;
   if (!routeData.value?._id || editableStops.value.length === 0) {
     return;
   }
@@ -701,7 +721,8 @@ async function saveRouteCustomization() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        stops: editableStops.value.map((stop) => ({ clientId: stop.clientId })),
+        stops: editableStops.value.map(stop => ({ clientId: stop.clientId, sucursal: stop.sucursal || '', stopKey: getStopKey(stop) })),
+        priorityStop: selectedPriorityStop(),
       }),
     });
     const result = await response.json().catch(() => null);
@@ -852,11 +873,11 @@ async function loadDriverRoute() {
     }
 
     assignedRoutes.value = Array.isArray(result?.routes)
-      ? result.routes
+      ? result.routes.map(normalizedDriverRoute)
       : result?.route
         ? [result.route]
         : [];
-    routeData.value = result?.route || assignedRoutes.value[0] || null;
+    routeData.value = normalizedDriverRoute(result?.route || assignedRoutes.value[0] || null);
     resetRouteUiState();
   } catch (error) {
     routeData.value = null;
@@ -890,11 +911,11 @@ async function loadDriverRouteById(routeId) {
     }
 
     assignedRoutes.value = Array.isArray(result?.routes)
-      ? result.routes
+      ? result.routes.map(normalizedDriverRoute)
       : result?.route
         ? [result.route]
         : [];
-    routeData.value = result?.route || assignedRoutes.value[0] || null;
+    routeData.value = normalizedDriverRoute(result?.route || assignedRoutes.value[0] || null);
     driverId.value = String(routeData.value?.driverId || driverId.value || "").trim();
     resetRouteUiState();
   } catch (error) {
@@ -911,7 +932,7 @@ async function updateDispatch(stop, dispatched) {
     return;
   }
 
-  updatingKey.value = `stop:${stop.clientId}`;
+  updatingKey.value = `stop:${getStopKey(stop)}`;
   errorMessage.value = "";
   feedback.value = "";
 
@@ -921,7 +942,7 @@ async function updateDispatch(stop, dispatched) {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ dispatched }),
+      body: JSON.stringify({ dispatched, sucursal: stop.sucursal || '', stopKey: getStopKey(stop) }),
     });
     const result = await response.json().catch(() => null);
 
@@ -1098,7 +1119,7 @@ watch(
 );
 
 watch(
-  () => editableStops.value.map((stop) => String(stop?.clientId || "")).join("|"),
+  () => editableStops.value.map(getStopKey).join('|'),
   () => {
     if (!editingRoute.value) {
       return;
@@ -1342,13 +1363,13 @@ watch(
                     </button>
                   </div>
                   <span class="editor-priority-note">
-                    {{ priorityStopClientId ? `Prioridad: ${priorityStopClientId}` : "Sin prioridad fija" }}
+                    {{ priorityStopClientId ? `Prioridad: ${priorityStopLabel}` : "Sin prioridad fija" }}
                   </span>
                 </div>
                 <div class="editable-stops-list">
                   <article
                     v-for="(stop, index) in editableStops"
-                    :key="`edit-${stop.clientId}`"
+                    :key="`edit-${getStopKey(stop)}`"
                     class="editable-stop-item"
                     :class="{
                       'editable-stop-item-draggable': reorderMode === 'drag',
@@ -1368,20 +1389,21 @@ watch(
                     <div class="editable-stop-actions">
                       <button
                         class="priority-star-btn"
-                        :class="{ 'priority-star-btn-active': priorityStopClientId === String(stop.clientId) }"
+                        :class="{ 'priority-star-btn-active': priorityStopClientId === getStopKey(stop) }"
                         type="button"
-                        :title="priorityStopClientId === String(stop.clientId) ? 'Quitar prioridad' : 'Marcar prioridad para espejo'"
-                        @click="togglePriorityStop(stop.clientId)"
+                        :title="priorityStopClientId === getStopKey(stop) ? 'Quitar prioridad' : 'Reorganizar ruta desde esta prioridad'"
+                        :disabled="Boolean(routeActionLoading)"
+                        @click="togglePriorityStop(stop)"
                       >
-                        {{ priorityStopClientId === String(stop.clientId) ? "★" : "☆" }}
+                        {{ priorityStopClientId === getStopKey(stop) ? "★" : "☆" }}
                       </button>
                       <button
                         class="remove-stop-btn"
                         type="button"
-                        :disabled="routeActionLoading === `remove:${stop.clientId}`"
+                        :disabled="routeActionLoading === `remove:${getStopKey(stop)}`"
                         title="Quitar cliente"
                         aria-label="Quitar cliente"
-                        @click="requestStopRemoval(stop.clientId)"
+                        @click="requestStopRemoval(stop)"
                       >
                         ×
                       </button>
@@ -1432,7 +1454,7 @@ watch(
                       </template>
                     </div>
                     <div
-                      v-if="pendingRemovalClientId === String(stop.clientId)"
+                      v-if="pendingRemovalClientId === getStopKey(stop)"
                       class="remove-stop-popout"
                     >
                       <p>Quitar cliente {{ stop.clientId }} de la ruta?</p>
@@ -1441,10 +1463,10 @@ watch(
                         <button
                           class="remove-stop-confirm-btn"
                           type="button"
-                          :disabled="routeActionLoading === `remove:${stop.clientId}`"
-                          @click="removeClientFromRoute(stop.clientId)"
+                          :disabled="routeActionLoading === `remove:${getStopKey(stop)}`"
+                          @click="removeClientFromRoute(stop)"
                         >
-                          {{ routeActionLoading === `remove:${stop.clientId}` ? "Quitando..." : "Confirmar" }}
+                          {{ routeActionLoading === `remove:${getStopKey(stop)}` ? "Quitando..." : "Confirmar" }}
                         </button>
                       </div>
                     </div>
@@ -1494,7 +1516,7 @@ watch(
             <span>Abajo de cada cliente puedes registrar una novedad del despacho.</span>
           </div>
           <div class="stops-list">
-            <article v-for="stop in routeData.stops" :key="stop.clientId" :class="['stop-item', stop.dispatched ? 'stop-item-done' : '']">
+            <article v-for="stop in routeData.stops" :key="getStopKey(stop)" :class="['stop-item', stop.dispatched ? 'stop-item-done' : '']">
               <div class="stop-main">
                 <div>
                   <p class="stop-order">{{ stop.order }}. {{ stop.nombre }}</p>
@@ -1507,11 +1529,11 @@ watch(
                     type="button"
                     @click="toggleIssueForm(stop)"
                   >
-                    {{ openIssueForms[stop.clientId] ? "Ocultar novedad" : "Reportar novedad" }}
+                    {{ openIssueForms[getStopKey(stop)] ? "Ocultar novedad" : "Reportar novedad" }}
                   </button>
                   <button
                     class="driver-button"
-                    :disabled="updatingKey === `stop:${stop.clientId}`"
+                    :disabled="updatingKey === `stop:${getStopKey(stop)}`"
                     @click="updateDispatch(stop, !stop.dispatched)"
                   >
                     {{ stop.dispatched ? "Marcar pendiente" : "Marcar despachado" }}
@@ -1520,7 +1542,7 @@ watch(
               </div>
 
               <form
-                v-if="openIssueForms[stop.clientId]"
+                v-if="openIssueForms[getStopKey(stop)]"
                 class="issue-form"
                 @submit.prevent="submitDispatchIssue(stop)"
               >

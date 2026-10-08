@@ -1,5 +1,6 @@
 <script setup>
 import { computed, reactive, ref } from "vue";
+import { downloadLoadGuide } from "../services/loadGuidePdf";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -22,6 +23,14 @@ const editRouteForm = reactive({
 });
 
 const canManageRoutes = computed(() => adminKey.value.trim().length > 0);
+
+function downloadGuide(route) {
+  try {
+    downloadLoadGuide(route.loadGuide, route);
+  } catch (error) {
+    routeAdminError.value = `No se pudo descargar la guia: ${error.message}`;
+  }
+}
 
 function formatDate(value) {
   if (!value) {
@@ -412,9 +421,14 @@ async function deleteRoute(route) {
               <span><strong>Chofer:</strong> {{ savedRoute.driverId }}</span>
               <span><strong>Clientes:</strong> {{ savedRoute.uniqueClientCount }}</span>
               <span><strong>Peso:</strong> {{ savedRoute.totalWeight }}</span>
+              <span v-if="savedRoute.loadGuide"><strong>Total pedidos:</strong> $ {{ Number(savedRoute.loadGuide.totalAmount || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</span>
             </div>
 
             <div class="saved-route-actions">
+              <router-link v-if="savedRoute.loadGuide && savedRoute.status !== 'completed'" class="route-secondary-button" :to="{ path: '/routes', query: { guideId: savedRoute._id } }">Editar guia y pedidos</router-link>
+              <button v-if="savedRoute.loadGuide" class="route-secondary-button" @click="downloadGuide(savedRoute)">
+                <i class="mdi mdi-file-download-outline" aria-hidden="true" /> Descargar guia PDF
+              </button>
               <button
                 class="route-secondary-button"
                 :disabled="completingRouteId === savedRoute._id || deletingRouteId === savedRoute._id"

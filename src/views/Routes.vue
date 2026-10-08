@@ -1,18 +1,34 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from 'vue-router';
 import RouteOsmMap from "../components/RouteOsmMap.vue";
+import TransportTripEditor from "../components/TransportTripEditor.vue";
+import DispatchCompanyPicker from "../components/DispatchCompanyPicker.vue";
+import { downloadLoadGuide } from "../services/loadGuidePdf";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
+const pageRoute = useRoute();
+const router = useRouter();
+const editingGuideId = ref('');
+const guideUpdatedAt = ref(null);
+const priorityPreviewLoading = ref(false);
+let priorityPreviewSequence = 0;
 
 const driverId = ref("");
 const driverName = ref("");
+const includeTransport = ref(false);
+const transportEditor = ref(null);
+const transportRouteId = ref('');
 const routeComment = ref("");
 const routeWeight = ref(0);
 const paradaInput = ref("");
+const orderNumberInput = ref("");
+const orderDateInput = ref("");
+const orderTotalInput = ref(null);
+const companyIdInput = ref('');
+const companyCatalog = ref([]);
+const defaultCompanyId = ref('');
 const paradaInputRef = ref(null);
-const latInput = ref("");
-const lonInput = ref("");
-const adminKeyInput = ref("");
 const paradas = ref([]);
 const paradasTableRef = ref(null);
 const latestAddedStopKey = ref("");
@@ -52,33 +68,70 @@ const anchorReasonOptions = [
 ];
 
 function buildStopKey(stop) {
-  const clientId = String(stop?.parada ?? stop?.clientId ?? "").trim();
+  const clientId = String(stop?.parada ?? stop?.clientId ?? stop?.id ?? "").trim();
   const sucursal = typeof stop?.sucursal === "string" ? stop.sucursal.trim() : "";
 
   return sucursal ? `${clientId}|${sucursal}` : clientId;
 }
 
-function toggleAnchor(stop) {
+async function toggleAnchor(stop) {
+  if (loading.value || addingStop.value || sedePickerVisible.value) return;
   const nextKey = buildStopKey(stop);
 
   if (anchorStopKey.value === nextKey) {
     anchorClientId.value = "";
     anchorSucursal.value = "";
     anchorStopKey.value = "";
-    return;
+  } else {
+    anchorClientId.value = String(stop?.parada ?? stop?.clientId ?? '').trim();
+    anchorSucursal.value = typeof stop?.sucursal === 'string' ? stop.sucursal.trim() : '';
+    anchorStopKey.value = nextKey;
   }
 
-  anchorClientId.value = String(stop?.parada ?? stop?.clientId ?? "").trim();
-  anchorSucursal.value = typeof stop?.sucursal === "string" ? stop.sucursal.trim() : "";
-  anchorStopKey.value = nextKey;
+  const sequence = ++priorityPreviewSequence;
+  priorityPreviewLoading.value = true; errorMessage.value = '';
+  try {
+    const requested = new Map(paradas.value.map(item => [buildStopKey(item), { clientId: item.parada, sucursal: item.sucursal || '' }]));
+    const response = await fetch(`${API_BASE_URL}/makeRoute/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stops: [...requested.values()], routeType: 'closest', preserveRouteOrder: false,
+        anchorClientId: anchorClientId.value || undefined, anchorSucursal: anchorSucursal.value || undefined,
+        anchorStopKey: anchorStopKey.value || undefined, routeWeight: totalWeight.value }) });
+    const result = await response.json().catch(() => null);
+    if (sequence !== priorityPreviewSequence) return;
+    if (!response.ok) throw new Error(result?.message || 'No se pudo reorganizar la ruta desde la prioridad.');
+    const saved = serverResponse.value?.savedRoute || null;
+    selectedRouteType.value = result.routeType || 'closest';
+    serverResponse.value = { ...serverResponse.value, ...result, savedRoute: saved };
+    feedback.value = anchorClientId.value ? `Ruta reorganizada desde ${stop.name || anchorClientId.value}.` : 'Prioridad retirada y ruta recalculada.';
+  } catch (failure) { if (sequence === priorityPreviewSequence) errorMessage.value = failure.message; }
+  finally { if (sequence === priorityPreviewSequence) priorityPreviewLoading.value = false; }
 }
 
 const totalWeight = computed(() => Number(routeWeight.value) || 0);
+const totalOrderAmount = computed(() => paradas.value.reduce((sum, stop) => (
+  sum + Math.round(((Number(stop.orderTotal) || 0) + Number.EPSILON) * 100)
+), 0) / 100);
+const plannedTransportStops = computed(() => new Set(paradas.value.map(buildStopKey)).size);
+
+watch(includeTransport, enabled => {
+  if (enabled && serverResponse.value?.savedRoute?.routeId && !transportRouteId.value) {
+    transportRouteId.value = String(serverResponse.value.savedRoute.routeId);
+  }
+});
+
+function formatAmount(value) {
+  return Number(value || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function updateCompanyCatalog(result) {
+  companyCatalog.value = result.companies;
+  defaultCompanyId.value = result.defaultCompanyId || '';
+}
 
 const uniqueClientCount = computed(() => {
   const uniqueIds = new Set(
     paradas.value
-      .map((stop) => String(stop.parada || "").trim())
+      .map(buildStopKey)
       .filter(Boolean),
   );
 
@@ -91,17 +144,18 @@ const duplicateClientIds = computed(() => {
 
   paradas.value.forEach((stop) => {
     const clientId = String(stop.parada || "").trim();
+    const stopKey = buildStopKey(stop);
 
     if (!clientId) {
       return;
     }
 
-    if (seen.has(clientId)) {
+    if (seen.has(stopKey)) {
       duplicates.add(clientId);
       return;
     }
 
-    seen.add(clientId);
+    seen.add(stopKey);
   });
 
   return Array.from(duplicates);
@@ -530,6 +584,7 @@ const clientLinkEntries = computed(() =>
     .filter((stop) => stop?.nombre && stop?.googleMapsLink)
     .map((stop) => ({
       id: stop.id,
+      stopKey: buildStopKey(stop),
       nombre: stop.nombre,
       link: stop.googleMapsLink,
       text: `${stop.nombre}, ${stop.googleMapsLink}`,
@@ -655,9 +710,17 @@ async function addStopAndReveal(stop) {
   const stopKey = `stop-${Date.now()}-${stopKeySequence}`;
 
   paradas.value.push({
+    companyId: companyIdInput.value,
+    orderNumber: orderNumberInput.value.trim(),
+    orderDate: orderDateInput.value,
+    orderTotal: Number(orderTotalInput.value),
     ...stop,
     __stopKey: stopKey,
   });
+  orderNumberInput.value = '';
+  orderDateInput.value = '';
+  orderTotalInput.value = null;
+  companyIdInput.value = defaultCompanyId.value;
   markLatestAddedStop(stopKey);
   await revealLatestStopRow();
 }
@@ -684,53 +747,30 @@ async function agregarSede(sede) {
 }
 
 async function agregarParada() {
-  if (addingStop.value) {
+  if (addingStop.value || sedePickerVisible.value) {
     return;
   }
 
   const clientId = paradaInput.value.trim();
-  const lat = latInput.value.trim();
-  const lon = lonInput.value.trim();
-  const adminKey = adminKeyInput.value.trim();
 
   if (!clientId) {
-    errorMessage.value = "Ingresa un ID de cliente.";
+    errorMessage.value = "Ingresa el RIF o ID del cliente.";
     return;
   }
 
-  if ((lat || lon) && adminKey !== "4321") {
-    errorMessage.value = "Clave de administrador incorrecta para agregar coordenadas.";
+  if (!companyCatalog.value.some(company => company._id === companyIdInput.value)) {
+    errorMessage.value = 'Selecciona o agrega la empresa a la que pertenece el pedido.';
+    return;
+  }
+
+  if (!orderNumberInput.value.trim() || !orderDateInput.value || orderTotalInput.value == null || orderTotalInput.value === ''
+    || !Number.isFinite(Number(orderTotalInput.value)) || Number(orderTotalInput.value) < 0) {
+    errorMessage.value = "Ingresa el numero, la fecha del pedido y un monto valido antes de agregar el cliente.";
     return;
   }
 
   errorMessage.value = "";
   addStopStatus.value = "";
-
-  if (lat && lon && adminKey === "4321") {
-    addingStop.value = true;
-    addStopStatusType.value = "info";
-    addStopStatus.value = "Agregando cliente manual...";
-
-    try {
-      await addStopAndReveal({
-        parada: clientId,
-        name: "Agregado manual",
-        location: { latitude: lat, longitude: lon },
-        sucursal: "",
-      });
-      addStopStatusType.value = "success";
-      addStopStatus.value = `Cliente ${clientId} agregado manualmente.`;
-    } finally {
-      addingStop.value = false;
-    }
-
-    paradaInput.value = "";
-    latInput.value = "";
-    lonInput.value = "";
-    adminKeyInput.value = "";
-    focusParadaInput();
-    return;
-  }
 
   addingStop.value = true;
   addStopStatusType.value = "info";
@@ -775,9 +815,6 @@ async function agregarParada() {
   }
 
   paradaInput.value = "";
-  latInput.value = "";
-  lonInput.value = "";
-  adminKeyInput.value = "";
   focusParadaInput();
 }
 
@@ -829,8 +866,28 @@ async function copyNearbyGroup(group) {
 }
 
 async function makeRoute() {
+  if (priorityPreviewLoading.value) return;
   if (!paradas.value.length) {
     errorMessage.value = "Agrega al menos un cliente antes de generar la ruta.";
+    return;
+  }
+
+  if (!driverId.value.trim()) {
+    errorMessage.value = "Ingresa el ID del chofer para guardar la ruta y sus pedidos.";
+    return;
+  }
+  const incompleteOrder = paradas.value.find((stop) => !String(stop.orderNumber || '').trim()
+    || !companyCatalog.value.some(company => company._id === stop.companyId)
+    || !stop.orderDate
+    || stop.orderTotal == null || stop.orderTotal === ''
+    || !Number.isFinite(Number(stop.orderTotal)) || Number(stop.orderTotal) < 0);
+  if (incompleteOrder) {
+    errorMessage.value = `Completa la empresa, numero de documento, fecha y monto del pedido para ${incompleteOrder.parada}.`;
+    return;
+  }
+
+  if (includeTransport.value && !transportEditor.value?.validate()) {
+    errorMessage.value = "Completa los datos de transporte antes de crear la ruta.";
     return;
   }
 
@@ -840,7 +897,7 @@ async function makeRoute() {
   shareFeedback.value = "";
 
   try {
-    const selectedStops = (editableRoute.value.length ? editableRoute.value : paradas.value)
+    const requestedStops = paradas.value
       .map((stop) => {
         const clientId = String(stop?.id || stop?.parada || "").trim();
 
@@ -854,23 +911,43 @@ async function makeRoute() {
         };
       })
       .filter(Boolean);
+    const requestedByKey = new Map(requestedStops.map(stop => [buildStopKey(stop), stop]));
+    const selectedStops = [];
+    for (const stop of editableRoute.value) {
+      const key = buildStopKey(stop);
+      if (requestedByKey.has(key)) { selectedStops.push(requestedByKey.get(key)); requestedByKey.delete(key); }
+    }
+    selectedStops.push(...requestedByKey.values());
 
-    const response = await fetch(`${API_BASE_URL}/makeRoute`, {
-      method: "POST",
+    const updating = Boolean(editingGuideId.value);
+    const endpoint = updating ? `/driver-routes/${editingGuideId.value}/guide` : '/makeRoute';
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: updating ? 'PATCH' : 'POST',
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        ...(updating ? { updatedAt: guideUpdatedAt.value } : {}),
         driverId: driverId.value.trim(),
         driverName: driverName.value.trim(),
         routeComment: routeComment.value.trim(),
         routeType: selectedRouteType.value,
-        routeWeight: Number(routeWeight.value) || 0,
+        routeWeight: totalWeight.value,
+        loadGuide: {
+          orders: paradas.value.map((stop) => ({
+            companyId: stop.companyId,
+            clientId: String(stop.parada).trim(),
+            sucursal: String(stop.sucursal || '').trim(),
+            orderNumber: String(stop.orderNumber).trim(),
+            date: stop.orderDate,
+            total: Number(stop.orderTotal),
+          })),
+        },
         anchorClientId: anchorClientId.value.trim() || undefined,
         anchorSucursal: anchorSucursal.value.trim() || undefined,
         anchorStopKey: anchorStopKey.value.trim() || undefined,
         anchorReason: anchorClientId.value.trim() ? anchorReason.value : undefined,
-        preserveRouteOrder: editableRoute.value.length > 0,
+        preserveRouteOrder: editableRoute.value.length > 0 && !anchorStopKey.value,
         stops: selectedStops,
       }),
     });
@@ -878,24 +955,83 @@ async function makeRoute() {
     const result = await response.json().catch(() => null);
 
     if (!response.ok) {
-      serverResponse.value = null;
-      errorMessage.value = result?.message || "Error al crear la ruta.";
+      errorMessage.value = result?.message || 'No se pudo guardar la guia.';
       return;
     }
 
     serverResponse.value = result;
+    if (result?.savedRoute?.routeId) {
+      editingGuideId.value = String(result.savedRoute.routeId);
+      guideUpdatedAt.value = result.savedRoute.updatedAt;
+      await router.replace({ path: '/routes', query: { guideId: editingGuideId.value } });
+    }
     selectedRouteType.value = result?.routeType || selectedRouteType.value;
     feedback.value = result?.savedRoute?.routeId
-      ? `Ruta ${result.routeTypeLabel || "seleccionada"} guardada con folio ${result.savedRoute.routeId} para el chofer ${result.savedRoute.driverId}.`
+      ? `Guia ${result.savedRoute.loadGuide?.number || result.savedRoute.routeId} ${updating ? 'actualizada' : 'creada'} para el chofer ${result.savedRoute.driverId}.`
       : "Rutas calculadas correctamente. Selecciona un tipo y agrega un ID de chofer para dejar la opcion guardada.";
 
+    if (includeTransport.value && result?.savedRoute?.routeId) {
+      const saved = await transportEditor.value.saveForRoute(String(result.savedRoute.routeId));
+      if (!saved) feedback.value += " La ruta quedo guardada; revisa el formulario de transporte para guardar el viaje.";
+      transportRouteId.value = String(result.savedRoute.routeId);
+    }
+
   } catch (error) {
-    serverResponse.value = null;
     errorMessage.value = `Error en la solicitud: ${error.message}`;
   } finally {
     loading.value = false;
   }
 }
+
+async function loadGuide(id) {
+  loading.value = true; errorMessage.value = '';
+  try {
+    const response = await fetch(`${API_BASE_URL}/driver-routes/by-id/${encodeURIComponent(id)}`);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.message || 'No se pudo cargar la guia.');
+    const saved = result.route;
+    if (!saved.loadGuide?.orders?.length) throw new Error('La ruta no tiene pedidos de una guia guardada.');
+    editingGuideId.value = String(saved._id); guideUpdatedAt.value = saved.updatedAt;
+    driverId.value = saved.driverId; driverName.value = saved.driverName || '';
+    routeComment.value = saved.routeComment || ''; routeWeight.value = saved.totalWeight || 0;
+    selectedRouteType.value = saved.routeType || 'closest';
+    anchorClientId.value = saved.anchorClientId || '';
+    anchorSucursal.value = saved.anchorSucursal || '';
+    anchorStopKey.value = saved.anchorStopKey || (anchorClientId.value ? buildStopKey({ clientId: anchorClientId.value, sucursal: anchorSucursal.value }) : '');
+    anchorReason.value = saved.anchorReason || 'priority';
+    paradas.value = saved.loadGuide.orders.map((order, index) => {
+      const matches = (saved.stops || []).filter(stop => stop.clientId === order.clientId);
+      const stop = matches.find(item => (item.sucursal || '') === (order.sucursal || '')) || (matches.length === 1 ? matches[0] : null);
+      return { parada: order.clientId, sucursal: order.sucursal || '', name: order.clientName || stop?.nombre || order.clientId,
+        location: stop?.location || null, companyId: order.companyId || '', orderNumber: order.orderNumber,
+        orderDate: order.date || '', orderTotal: order.total, __stopKey: `loaded-${index}` };
+    });
+    const stops = (saved.stops || []).map(stop => {
+      const branches = [...new Set(saved.loadGuide.orders.filter(order => order.clientId === stop.clientId).map(order => order.sucursal || ''))];
+      return { ...stop, id: stop.clientId, sucursal: stop.sucursal || (branches.length === 1 ? branches[0] : '') };
+    });
+    const option = { type: saved.routeType || 'closest', label: saved.routeTypeLabel || 'Ruta guardada', route: stops,
+      estimatedDistanceKm: saved.totalDistanceKm, googleMapsRouteLinks: saved.googleMapsRouteLinks, openRouteLink: saved.openRouteLink };
+    serverResponse.value = { ...saved, route: stops, routeOptions: [option], savedRoute: { ...saved, routeId: saved._id } };
+    feedback.value = `Editando guia ${saved.loadGuide.number || saved.routeLabel}.`;
+    transportRouteId.value = includeTransport.value ? String(saved._id) : '';
+  } catch (failure) { errorMessage.value = failure.message; }
+  finally { loading.value = false; }
+}
+function newGuide() {
+  if ((editingGuideId.value || paradas.value.length) && !window.confirm('Crear una nueva guia? Los cambios sin guardar de esta pantalla se descartaran.')) return;
+  editingGuideId.value = ''; guideUpdatedAt.value = null; serverResponse.value = null;
+  priorityPreviewSequence += 1; priorityPreviewLoading.value = false;
+  paradas.value = []; editableRoute.value = []; routeTable.value = [];
+  transportRouteId.value = ''; includeTransport.value = false;
+  driverId.value = ''; driverName.value = ''; routeComment.value = ''; routeWeight.value = 0;
+  paradaInput.value = ''; orderNumberInput.value = ''; orderDateInput.value = ''; orderTotalInput.value = null;
+  anchorClientId.value = ''; anchorSucursal.value = ''; anchorStopKey.value = '';
+  sedePickerVisible.value = false; feedback.value = ''; errorMessage.value = ''; addStopStatus.value = '';
+  router.replace({ path: '/routes', query: {} });
+}
+onMounted(() => { if (pageRoute.query.guideId) loadGuide(String(pageRoute.query.guideId)); });
+watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGuideId.value) loadGuide(String(id)); });
 </script>
 
 <template>
@@ -948,41 +1084,58 @@ async function makeRoute() {
           </div>
         </div>
 
-        <div class="input-row">
-          <el-input
-            ref="paradaInputRef"
-            v-model="paradaInput"
-            placeholder="Agregar ID de cliente"
-            class="route-input"
-            :disabled="addingStop"
-            @keyup.enter="agregarParada"
-          />
-          <el-input
-            v-model="latInput"
-            placeholder="Latitud (opcional, admin)"
-            class="route-input"
-            style="max-width: 140px;"
-            :disabled="addingStop"
-            @keyup.enter="agregarParada"
-          />
-          <el-input
-            v-model="lonInput"
-            placeholder="Longitud (opcional, admin)"
-            class="route-input"
-            style="max-width: 140px;"
-            :disabled="addingStop"
-            @keyup.enter="agregarParada"
-          />
-          <el-input
-            v-model="adminKeyInput"
-            placeholder="Clave admin (4321)"
-            class="route-input"
-            style="max-width: 120px;"
-            :disabled="addingStop"
-            @keyup.enter="agregarParada"
-            show-password
-          />
-          <el-button type="primary" class="route-action-button" :loading="addingStop" @click="agregarParada">
+        <DispatchCompanyPicker v-model="companyIdInput" :disabled="addingStop || sedePickerVisible || loading" @catalog-updated="updateCompanyCatalog" />
+        <div class="input-row client-order-row">
+          <div class="field-group route-entry-field">
+            <label for="clientIdInput">RIF / ID del cliente</label>
+            <el-input
+              id="clientIdInput"
+              ref="paradaInputRef"
+              v-model="paradaInput"
+              placeholder="RIF / ID del cliente"
+              class="route-input"
+              :disabled="addingStop || sedePickerVisible"
+              @keyup.enter="agregarParada"
+            />
+          </div>
+          <div class="field-group route-entry-field">
+            <label for="orderNumberInput">Numero de pedido</label>
+            <el-input
+              id="orderNumberInput"
+              v-model="orderNumberInput"
+              placeholder="Numero de pedido"
+              class="route-input"
+              :disabled="addingStop || sedePickerVisible"
+              @keyup.enter="agregarParada"
+            />
+          </div>
+          <div class="field-group route-entry-field">
+            <label for="orderDateInput">Fecha del pedido</label>
+            <el-input
+              id="orderDateInput"
+              v-model="orderDateInput"
+              type="date"
+              class="route-input"
+              :disabled="addingStop || sedePickerVisible"
+              @keyup.enter="agregarParada"
+            />
+          </div>
+          <div class="field-group route-entry-field">
+            <label for="orderTotalInput">Monto del pedido ($)</label>
+            <el-input-number
+              id="orderTotalInput"
+              v-model="orderTotalInput"
+              :min="0"
+              :precision="2"
+              :step="0.01"
+              :controls="false"
+              placeholder="Monto del pedido ($)"
+              class="route-input"
+              :disabled="addingStop || sedePickerVisible"
+              @keyup.enter="agregarParada"
+            />
+          </div>
+          <el-button type="primary" class="route-action-button" :loading="addingStop" :disabled="sedePickerVisible" @click="agregarParada">
             {{ addingStop ? "Agregando..." : "Agregar" }}
           </el-button>
         </div>
@@ -1009,9 +1162,17 @@ async function makeRoute() {
           </select>
         </div>
         <div v-if="duplicateClientIds.length" class="warning-inline">
-          IDs repetidos: {{ duplicateClientIds.join(", ") }}. Al guardar la ruta se consolidan en un solo cliente.
+          Varios pedidos para la misma sede: {{ duplicateClientIds.join(", ") }}. Se guardan todos los pedidos y se consolida una parada por sede.
         </div>
       </div>
+
+      <section class="route-transport-section">
+        <div class="summary-strip">
+          <label><input v-model="includeTransport" type="checkbox" :disabled="loading" /> Datos de transporte del viaje</label>
+          <router-link to="/transport-kpis">KPIs de transporte</router-link>
+        </div>
+        <TransportTripEditor v-if="includeTransport" ref="transportEditor" planning-mode :loaded-amount="totalOrderAmount" :loaded-kg="totalWeight" :planned-stops="plannedTransportStops" :route-id="transportRouteId" />
+      </section>
 
       <div class="routes-card">
         <p class="table-scroll-hint">La lista mantiene scroll vertical cuando agregas muchos clientes.</p>
@@ -1030,6 +1191,7 @@ async function makeRoute() {
                   class="anchor-btn"
                   :class="{ 'anchor-btn-active': buildStopKey(scope.row) === anchorStopKey }"
                   type="button"
+                  :disabled="loading || addingStop || sedePickerVisible"
                   :title="buildStopKey(scope.row) === anchorStopKey ? 'Quitar ancla' : 'Marcar como cliente ancla (primera parada fija)'"
                   @click="toggleAnchor(scope.row)"
                 >
@@ -1039,6 +1201,28 @@ async function makeRoute() {
             </el-table-column>
             <el-table-column prop="parada" label="Parada" />
             <el-table-column prop="name" label="Nombre" width="150" />
+            <el-table-column label="Empresa del pedido" min-width="220">
+              <template #default="scope">
+                <el-select v-model="scope.row.companyId" placeholder="Empresa" :aria-label="`Empresa del pedido ${scope.row.orderNumber || scope.row.parada}`" :disabled="loading">
+                  <el-option v-for="company in companyCatalog" :key="company._id" :label="company.name" :value="company._id" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="Numero de documento" min-width="190">
+              <template #default="scope">
+                <el-input v-model="scope.row.orderNumber" placeholder="Numero de documento" :aria-label="`Numero de documento de ${scope.row.parada}`" :disabled="loading" />
+              </template>
+            </el-table-column>
+            <el-table-column label="Fecha del pedido" min-width="170">
+              <template #default="scope">
+                <el-input v-model="scope.row.orderDate" type="date" :aria-label="`Fecha del pedido de ${scope.row.parada}`" :disabled="loading" />
+              </template>
+            </el-table-column>
+            <el-table-column label="Monto del pedido ($)" min-width="190">
+              <template #default="scope">
+                <el-input-number v-model="scope.row.orderTotal" :min="0" :precision="2" :step="0.01" :controls="false" placeholder="Monto del pedido" :aria-label="`Monto del pedido de ${scope.row.parada}`" :disabled="loading" />
+              </template>
+            </el-table-column>
             <el-table-column label="Acciones" width="100">
               <template #default="scope">
                 <el-button
@@ -1051,9 +1235,15 @@ async function makeRoute() {
           </el-table>
         </div>
 
-        <el-button type="success" class="route-submit-button" :loading="loading" @click="makeRoute"
-          >Crear y guardar ruta</el-button
+        <div class="summary-strip">
+          <span><strong>Pedidos:</strong> {{ paradas.length }}</span>
+          <span><strong>Total de los pedidos:</strong> $ {{ formatAmount(totalOrderAmount) }}</span>
+        </div>
+        <el-button type="success" class="route-submit-button" :loading="loading || priorityPreviewLoading" @click="makeRoute"
+          >{{ editingGuideId ? 'Actualizar guia' : 'Crear y guardar ruta' }}</el-button
         >
+        <el-button type="primary" :disabled="loading" @click="newGuide"><i class="mdi mdi-plus" aria-hidden="true" /> Nueva guia</el-button>
+        <el-button v-if="serverResponse?.savedRoute?.loadGuide" type="primary" :disabled="loading" @click="downloadLoadGuide(serverResponse.savedRoute.loadGuide, serverResponse.savedRoute)"><i class="mdi mdi-file-download-outline" aria-hidden="true" /> Descargar guia PDF</el-button>
       </div>
 
       <div v-if="sedePickerVisible" class="routes-card sede-picker-card">
@@ -1093,6 +1283,7 @@ async function makeRoute() {
             <span><strong>Folio:</strong> {{ currentRouteReference }}</span>
             <span><strong>Clientes unicos:</strong> {{ serverResponse.uniqueClientCount }}</span>
             <span><strong>Peso total:</strong> {{ serverResponse.totalWeight }}</span>
+            <span v-if="serverResponse.savedRoute?.loadGuide"><strong>Total de los pedidos:</strong> $ {{ formatAmount(serverResponse.savedRoute.loadGuide.totalAmount) }}</span>
             <span><strong>Chofer:</strong> {{ serverResponse.savedRoute?.driverId || 'Sin asignar' }}</span>
             <span><strong>Opcion activa:</strong> {{ activeRouteOption?.label || serverResponse.routeTypeLabel }}</span>
           </div>
@@ -1189,7 +1380,7 @@ async function makeRoute() {
                 <p class="reorder-hint">Arrastra para cambiar el orden antes de copiar.</p>
                 <article
                   v-for="(entry, idx) in clientLinkEntries"
-                  :key="entry.id || entry.link"
+                  :key="entry.stopKey"
                   class="share-list-item"
                   :class="{ 'share-item-dragging': draggedIndex === idx }"
                   :draggable="reorderMode === 'drag'"
@@ -1209,10 +1400,10 @@ async function makeRoute() {
                     </div>
                   </template>
                   <template v-else>
-                    <label class="reorder-position-input" :for="`pos-${entry.id || idx}`">
+                    <label class="reorder-position-input" :for="`pos-${encodeURIComponent(entry.stopKey)}`">
                       <span>#</span>
                       <input
-                        :id="`pos-${entry.id || idx}`"
+                        :id="`pos-${encodeURIComponent(entry.stopKey)}`"
                         type="number"
                         min="1"
                         :max="editableRoute.length"
@@ -1519,11 +1710,31 @@ async function makeRoute() {
   overflow: hidden;
 }
 
+.route-transport-section { padding: 18px 0; }
+.route-transport-section label { display: inline-flex; gap: 8px; align-items: center; }
+.route-transport-section a { color: #9fd1ff; }
+
 .input-row {
   display: flex;
   gap: 0.8rem;
   align-items: center;
   margin-top: 1rem;
+}
+
+.client-order-row {
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.route-entry-field {
+  flex: 1 1 200px;
+  min-width: 0;
+  width: 100%;
+}
+
+.route-entry-field :deep(.el-input-number) {
+  width: 100%;
+  height: auto;
 }
 
 .input-grid {
@@ -2085,6 +2296,10 @@ async function makeRoute() {
 
 
 @media (max-width: 960px) {
+  .route-entry-field {
+    flex: 0 1 auto;
+  }
+
   .input-row,
   .copy-row,
   .share-list-item,

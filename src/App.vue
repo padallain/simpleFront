@@ -8,6 +8,8 @@ const route = useRoute()
 
 const PAGE_TITLES = {
   '/routes': 'Crear Ruta',
+  '/transport-kpis': 'KPIs de Transporte',
+  '/finish-routes': 'Terminar Ruta',
   '/daily-check': 'Chequeo Diario',
   '/fuel-report': 'Reporte Combustible',
   '/driver-route': 'Mi Ruta',
@@ -54,6 +56,8 @@ function goToVehicleMaintenance()      { router.push('/vehicle-maintenance-histo
 function goToFleetConsumption()         { router.push('/fleet-consumption') }
 function goToAdminUsers()              { router.push('/admin-users') }
 function goToNotifications()           { router.push('/notifications') }
+function goToTransportKpis()           { router.push('/transport-kpis') }
+function goToFinishRoutes()            { router.push('/finish-routes') }
 
 function goToDefaultLanding() {
   if (isWarehouseUser.value) {
@@ -135,6 +139,7 @@ watch(() => route.fullPath, () => {
 
           <div v-if="expandedSection === 'operacion'" class="nav-section-panel">
             <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToRoutes">Crear Ruta</button>
+            <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToFinishRoutes">Terminar ruta</button>
             <button class="nav-chip" type="button" @click="goToDailyCheck">Chequeo diario</button>
             <button class="nav-chip" type="button" @click="goToFuelReport">Combustible</button>
             <button class="nav-chip" type="button" @click="goToDriverRoute">Mi ruta</button>
@@ -164,6 +169,7 @@ watch(() => route.fullPath, () => {
           </button>
 
           <div v-if="expandedSection === 'administracion'" class="nav-section-panel">
+            <button class="nav-chip" type="button" @click="goToTransportKpis">KPIs de transporte</button>
             <button class="nav-chip" type="button" @click="goToDriverAnalytics">Análisis choferes</button>
             <button class="nav-chip" type="button" @click="goToWarehousePickerAnalytics">Análisis almacenistas</button>
             <button class="nav-chip" type="button" @click="goToNotifications">Notificaciones</button>
