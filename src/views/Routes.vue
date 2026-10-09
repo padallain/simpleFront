@@ -9,6 +9,9 @@ import { downloadLoadGuide } from "../services/loadGuidePdf";
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 const pageRoute = useRoute();
 const router = useRouter();
+function getTodayOrderDate() {
+  return new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
 const editingGuideId = ref('');
 const guideUpdatedAt = ref(null);
 const priorityPreviewLoading = ref(false);
@@ -23,12 +26,17 @@ const routeComment = ref("");
 const routeWeight = ref(0);
 const paradaInput = ref("");
 const orderNumberInput = ref("");
-const orderDateInput = ref("");
+const orderDateInput = ref(getTodayOrderDate());
 const orderTotalInput = ref(null);
+const editingClientStopKey = ref('');
+const editingClientId = ref('');
+const clientEditBranches = ref([]);
+const clientEditError = ref('');
 const companyIdInput = ref('');
 const companyCatalog = ref([]);
 const defaultCompanyId = ref('');
 const paradaInputRef = ref(null);
+const dispatchRouteMapRef = ref(null);
 const paradas = ref([]);
 const paradasTableRef = ref(null);
 const latestAddedStopKey = ref("");
@@ -551,6 +559,13 @@ const activeRouteOption = computed(() => {
   return routeOptions.value.find((option) => option.type === selectedRouteType.value) || routeOptions.value[0];
 });
 
+function focusDispatchRouteMap() {
+  nextTick(() => {
+    const mapElement = dispatchRouteMapRef.value?.$el || dispatchRouteMapRef.value;
+    mapElement?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  });
+}
+
 const activeRouteOrigin = computed(() => {
   const fallbackOrigin = { latitude: 10.578208693113535, longitude: -71.67338068775426 };
   const rawLink = String(activeRouteOption.value?.openRouteLink || "").trim();
@@ -718,7 +733,7 @@ async function addStopAndReveal(stop) {
     __stopKey: stopKey,
   });
   orderNumberInput.value = '';
-  orderDateInput.value = '';
+  orderDateInput.value = getTodayOrderDate();
   orderTotalInput.value = null;
   companyIdInput.value = defaultCompanyId.value;
   markLatestAddedStop(stopKey);
@@ -827,6 +842,58 @@ function eliminarParada(idx) {
     anchorReason.value = "priority";
   }
   paradas.value.splice(idx, 1);
+  if (removed?.__stopKey === editingClientStopKey.value) cancelClientIdEdit();
+}
+
+function startClientIdEdit(stop) {
+  editingClientStopKey.value = stop.__stopKey;
+  editingClientId.value = String(stop.parada || '');
+  clientEditBranches.value = [];
+  clientEditError.value = '';
+}
+
+function cancelClientIdEdit() {
+  editingClientStopKey.value = '';
+  editingClientId.value = '';
+  clientEditBranches.value = [];
+  clientEditError.value = '';
+}
+
+function applyClientIdEdit(stop, client) {
+  const wasAnchor = anchorStopKey.value === buildStopKey(stop);
+  stop.parada = String(client.id || editingClientId.value).trim();
+  stop.name = client.sucursal ? `${client.nombre} — ${client.sucursal}` : client.nombre;
+  stop.sucursal = client.sucursal || '';
+  stop.location = client.location || null;
+  if (wasAnchor) {
+    anchorClientId.value = stop.parada;
+    anchorSucursal.value = stop.sucursal;
+    anchorStopKey.value = buildStopKey(stop);
+  }
+  feedback.value = `RIF del pedido ${stop.orderNumber} actualizado a ${stop.parada}.`;
+  cancelClientIdEdit();
+}
+
+async function saveClientIdEdit(stop, branch = null) {
+  if (loading.value || editingClientStopKey.value !== stop.__stopKey) return;
+  const clientId = editingClientId.value.trim();
+  if (!clientId) { clientEditError.value = 'Ingresa un RIF o ID.'; return; }
+  clientEditError.value = '';
+  addStopStatus.value = '';
+  try {
+    const response = await fetch(`${API_BASE_URL}/getClient/${encodeURIComponent(clientId)}`);
+    const result = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(result?.message || `El cliente ${clientId} no esta registrado.`);
+    if (branch) {
+      const selectedBranch = result?.sedes?.find(item => (item.sucursal || '') === (branch.sucursal || ''));
+      if (!selectedBranch) throw new Error('La sede seleccionada ya no esta disponible.');
+      applyClientIdEdit(stop, selectedBranch);
+    } else if (result.esCadena && Array.isArray(result.sedes) && result.sedes.length > 1) {
+      clientEditBranches.value = result.sedes;
+      clientEditError.value = 'Selecciona la sede que corresponde a este pedido.';
+      return;
+    } else applyClientIdEdit(stop, result);
+  } catch (failure) { clientEditError.value = failure.message; }
 }
 
 async function copyText(text, successMessage) {
@@ -955,7 +1022,17 @@ async function makeRoute() {
     const result = await response.json().catch(() => null);
 
     if (!response.ok) {
-      errorMessage.value = result?.message || 'No se pudo guardar la guia.';
+      if (updating && (response.status === 404 || response.status === 405)) {
+        errorMessage.value = 'El servidor conectado no encuentra la funcion para actualizar guias. Publica el backend actualizado en Render y vuelve a intentarlo.';
+      } else if (response.status === 401) {
+        errorMessage.value = 'Tu sesion de administrador vencio. Inicia sesion nuevamente antes de actualizar la guia.';
+      } else if (response.status === 403) {
+        errorMessage.value = 'Tu usuario no tiene permisos de administrador para actualizar esta guia.';
+      } else if (response.status === 409) {
+        errorMessage.value = result?.message || 'La guia cambio o fue terminada. Recargala antes de editar.';
+      } else {
+        errorMessage.value = result?.message || `No se pudo guardar la guia (HTTP ${response.status}).`;
+      }
       return;
     }
 
@@ -1025,7 +1102,7 @@ function newGuide() {
   paradas.value = []; editableRoute.value = []; routeTable.value = [];
   transportRouteId.value = ''; includeTransport.value = false;
   driverId.value = ''; driverName.value = ''; routeComment.value = ''; routeWeight.value = 0;
-  paradaInput.value = ''; orderNumberInput.value = ''; orderDateInput.value = ''; orderTotalInput.value = null;
+  paradaInput.value = ''; orderNumberInput.value = ''; orderDateInput.value = getTodayOrderDate(); orderTotalInput.value = null;
   anchorClientId.value = ''; anchorSucursal.value = ''; anchorStopKey.value = '';
   sedePickerVisible.value = false; feedback.value = ''; errorMessage.value = ''; addStopStatus.value = '';
   router.replace({ path: '/routes', query: {} });
@@ -1199,7 +1276,25 @@ watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGui
                 </button>
               </template>
             </el-table-column>
-            <el-table-column prop="parada" label="Parada" />
+            <el-table-column label="RIF / ID" min-width="185">
+              <template #default="scope">
+                <div v-if="editingClientStopKey === scope.row.__stopKey" class="client-id-editor">
+                  <el-input v-model="editingClientId" :disabled="loading" aria-label="Editar RIF o ID" placeholder="RIF / ID registrado" @input="clientEditBranches = []; clientEditError = ''" @keyup.enter="saveClientIdEdit(scope.row)" />
+                  <div class="client-id-actions">
+                    <el-button type="success" circle title="Validar y guardar RIF" aria-label="Validar y guardar RIF" :disabled="loading" @click="saveClientIdEdit(scope.row)"><i class="mdi mdi-check" aria-hidden="true" /></el-button>
+                    <el-button circle title="Cancelar edicion del RIF" aria-label="Cancelar edicion del RIF" :disabled="loading" @click="cancelClientIdEdit"><i class="mdi mdi-close" aria-hidden="true" /></el-button>
+                  </div>
+                  <div v-if="clientEditBranches.length" class="client-id-branch-options">
+                    <button v-for="branch in clientEditBranches" :key="branch.sucursal || branch._id" type="button" :disabled="loading" @click="saveClientIdEdit(scope.row, branch)">{{ branch.sucursal || 'Sede principal' }}</button>
+                  </div>
+                  <small v-if="clientEditError" class="client-id-edit-error" role="alert">{{ clientEditError }}</small>
+                </div>
+                <div v-else class="client-id-display">
+                  <span>{{ scope.row.parada }}</span>
+                  <button type="button" class="client-id-pencil" title="Editar RIF o ID de este pedido" :aria-label="`Editar RIF o ID del pedido ${scope.row.orderNumber}`" :disabled="loading" @click="startClientIdEdit(scope.row)"><i class="mdi mdi-pencil-outline" aria-hidden="true" /></button>
+                </div>
+              </template>
+            </el-table-column>
             <el-table-column prop="name" label="Nombre" width="150" />
             <el-table-column label="Empresa del pedido" min-width="220">
               <template #default="scope">
@@ -1223,13 +1318,13 @@ watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGui
                 <el-input-number v-model="scope.row.orderTotal" :min="0" :precision="2" :step="0.01" :controls="false" placeholder="Monto del pedido" :aria-label="`Monto del pedido de ${scope.row.parada}`" :disabled="loading" />
               </template>
             </el-table-column>
-            <el-table-column label="Acciones" width="100">
+            <el-table-column label="Acciones" width="180">
               <template #default="scope">
                 <el-button
                   type="danger"
                   size="small"
                   @click="eliminarParada(scope.$index)"
-                >Eliminar</el-button>
+                >Eliminar pedido</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -1287,6 +1382,7 @@ watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGui
             <span><strong>Chofer:</strong> {{ serverResponse.savedRoute?.driverId || 'Sin asignar' }}</span>
             <span><strong>Opcion activa:</strong> {{ activeRouteOption?.label || serverResponse.routeTypeLabel }}</span>
           </div>
+          <button v-if="activeRouteOption?.route?.length" class="route-map-shortcut" type="button" @click="focusDispatchRouteMap"><i class="mdi mdi-map-marker-path" aria-hidden="true" /> Ver ruta de despacho</button>
           <div v-if="serverResponse.duplicateClientIds?.length" class="warning-inline">
             IDs consolidados por repeticion: {{ serverResponse.duplicateClientIds.join(", ") }}
           </div>
@@ -1442,7 +1538,7 @@ watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGui
             <p v-if="shareFeedback" class="share-feedback">{{ shareFeedback }}</p>
           </div>
 
-          <div v-if="activeRouteMapStops.length" class="routes-card map-card">
+          <div v-if="activeRouteMapStops.length" ref="dispatchRouteMapRef" class="routes-card map-card">
             <RouteOsmMap
               title="Mapa OSM de la ruta"
               description="Las paradas se muestran numeradas sobre OpenStreetMap para revisarlas mejor también en teléfono."
@@ -1713,6 +1809,7 @@ watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGui
 .route-transport-section { padding: 18px 0; }
 .route-transport-section label { display: inline-flex; gap: 8px; align-items: center; }
 .route-transport-section a { color: #9fd1ff; }
+.route-map-shortcut { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; margin-top: 12px; padding: 8px 12px; border: 1px solid #699ca6; border-radius: 4px; background: #1e6776; color: #fff; cursor: pointer; }
 
 .input-row {
   display: flex;
@@ -1736,6 +1833,25 @@ watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGui
   width: 100%;
   height: auto;
 }
+
+.client-id-display,
+.client-id-editor,
+.client-id-actions,
+.client-id-branch-options {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.client-id-display > span { overflow-wrap: anywhere; }
+.client-id-pencil,
+.client-id-actions :deep(.el-button) { flex: 0 0 34px; width: 34px; height: 34px; min-height: 34px; padding: 0; }
+.client-id-branch-options button { min-height: 34px; padding: 6px 9px; border: 1px solid #72949e; border-radius: 4px; background: #eef5f7; color: #1c414c; cursor: pointer; }
+.client-id-edit-error { flex: 1 0 100%; color: #ffb7bd; white-space: normal; }
+.client-id-actions { flex-wrap: nowrap; }
+.responsive-table :deep(.el-table__cell) { overflow-wrap: anywhere; }
 
 .input-grid {
   display: grid;

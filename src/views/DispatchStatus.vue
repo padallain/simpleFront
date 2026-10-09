@@ -471,6 +471,13 @@ onMounted(() => {
               <span>{{ formatDate(route.updatedAt || route.createdAt) }}</span>
               <div class="route-actions-inline">
                 <RouterLink
+                  v-if="route.hasLoadGuide"
+                  class="inline-link inline-link-button"
+                  :to="{ path: '/routes', query: { guideId: String(route.routeId || '') } }"
+                >
+                  Editar guia y ruta
+                </RouterLink>
+                <RouterLink
                   class="inline-link inline-link-button"
                   :to="`/driver-route?routeId=${encodeURIComponent(String(route.routeId || ''))}&driverId=${encodeURIComponent(String(route.driverId || ''))}`"
                 >
