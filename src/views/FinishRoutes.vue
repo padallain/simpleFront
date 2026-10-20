@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import TransportTripEditor from '../components/TransportTripEditor.vue';
 import { transportRequest, usd } from '../services/transportApi';
@@ -12,9 +12,12 @@ const loading = ref(false);
 const error = ref('');
 const selectedRouteId = ref(String(route.query.routeId || ''));
 const selectedLabel = ref('');
+const finishDetailRef = ref(null);
+const routesWithGuide = computed(() => routes.value.filter(item => Array.isArray(item.loadGuide?.orders) && item.loadGuide.orders.length > 0));
+const routesWithoutGuideCount = computed(() => routes.value.length - routesWithGuide.value.length);
 const visibleRoutes = computed(() => {
   const query = search.value.trim().toLowerCase();
-  return routes.value.filter(item => [item.routeLabel, item._id, item.driverId, item.driverName, item.loadGuide?.number].some(value => String(value || '').toLowerCase().includes(query)));
+  return routesWithGuide.value.filter(item => [item.routeLabel, item._id, item.driverId, item.driverName, item.loadGuide?.number].some(value => String(value || '').toLowerCase().includes(query)));
 });
 async function load() {
   loading.value = true; error.value = '';
@@ -22,9 +25,11 @@ async function load() {
   catch (failure) { error.value = failure.message; }
   finally { loading.value = false; }
 }
-function select(item) {
+async function select(item) {
   selectedRouteId.value = item._id;
   selectedLabel.value = item.loadGuide?.number || item.routeLabel;
+  await nextTick();
+  finishDetailRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 onMounted(load);
 </script>
@@ -39,11 +44,12 @@ onMounted(load);
     </form>
     <p v-if="error" role="alert" class="finish-error">{{ error }}</p>
     <p v-if="routes.length === 500">Listado limitado a las 500 rutas mas recientes.</p>
+    <p v-if="routesWithoutGuideCount" class="finish-notice">Se omitieron {{ routesWithoutGuideCount }} ruta(s) sin pedidos en la guia. Permanecen guardadas; puedes verlas en Estatus de despachos.</p>
     <div class="finish-table"><table><thead><tr><th>Fecha / guia</th><th>Chofer</th><th>Pedidos</th><th>Cargado ($)</th><th>Devuelto ($)</th><th>Ruta</th><th>Liquidacion</th><th></th></tr></thead><tbody>
-      <tr v-for="item in visibleRoutes" :key="item._id"><td>{{ item.createdAt ? new Date(item.createdAt).toLocaleDateString('es-VE', { timeZone: 'America/Caracas' }) : 'Sin fecha' }}<small>{{ item.loadGuide?.number || item.routeLabel }}</small></td><td>{{ item.driverName || item.driverId }}</td><td>{{ item.loadGuide?.orders?.length ?? 'Sin guia' }}</td><td>{{ usd(item.trip?.loadedAmount ?? item.loadGuide?.totalAmount) }}</td><td>{{ usd(item.trip?.returnedAmount) }}</td><td>{{ item.status === 'completed' ? 'Terminada' : 'En curso' }}</td><td>{{ item.trip?.status === 'closed' ? 'Cerrada' : item.trip ? 'Borrador' : 'Pendiente' }}</td><td><button :disabled="!item.loadGuide?.orders?.length" @click="select(item)"><i class="mdi mdi-clipboard-check-outline" aria-hidden="true" /> {{ item.trip?.status === 'closed' ? 'Ver liquidacion' : 'Liquidar viaje' }}</button></td></tr>
+      <tr v-for="item in visibleRoutes" :key="item._id"><td>{{ item.createdAt ? new Date(item.createdAt).toLocaleDateString('es-VE', { timeZone: 'America/Caracas' }) : 'Sin fecha' }}<small>{{ item.loadGuide?.number || item.routeLabel }}</small></td><td>{{ item.driverName || item.driverId }}</td><td>{{ item.loadGuide?.orders?.length ?? 'Sin guia' }}</td><td>{{ usd(item.trip?.loadedAmount ?? item.loadGuide?.totalAmount) }}</td><td>{{ usd(item.trip?.returnedAmount) }}</td><td>{{ item.status === 'completed' ? 'Terminada' : 'En curso' }}</td><td>{{ item.trip?.status === 'closed' ? 'Cerrada' : item.trip ? 'Borrador' : 'Pendiente' }}</td><td><button :disabled="!item.loadGuide?.orders?.length" :title="item.loadGuide?.orders?.length ? 'Abrir parametros y liquidacion del viaje' : 'Esta ruta no tiene guia de pedidos'" @click="select(item)"><i class="mdi mdi-clipboard-check-outline" aria-hidden="true" /> {{ item.trip?.status === 'closed' ? 'Ver liquidacion' : 'Liquidar / parametros' }}</button></td></tr>
     </tbody></table></div>
-    <p v-if="!loading && !visibleRoutes.length">No hay rutas en este listado.</p>
-    <section v-if="selectedRouteId" class="finish-detail"><div class="finish-heading"><h2>{{ selectedLabel || 'Liquidacion seleccionada' }}</h2><button aria-label="Cerrar detalle" title="Cerrar detalle" @click="selectedRouteId = ''"><i class="mdi mdi-close" aria-hidden="true" /></button></div><TransportTripEditor :key="selectedRouteId" :route-id="selectedRouteId" settlement-mode @saved="load" /></section>
+    <p v-if="!loading && !visibleRoutes.length">{{ routes.length && routesWithoutGuideCount === routes.length ? 'No hay guias con pedidos para liquidar.' : 'No hay rutas con guia para este filtro.' }}</p>
+    <section v-if="selectedRouteId" ref="finishDetailRef" class="finish-detail"><div class="finish-heading"><h2>{{ selectedLabel || 'Liquidacion seleccionada' }}</h2><button aria-label="Cerrar detalle" title="Cerrar detalle" @click="selectedRouteId = ''"><i class="mdi mdi-close" aria-hidden="true" /></button></div><TransportTripEditor :key="selectedRouteId" :route-id="selectedRouteId" settlement-mode @saved="load" /></section>
   </main>
 </template>
 
@@ -55,9 +61,12 @@ onMounted(load);
 label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; min-width: 0; flex: 1 1 200px; }
 input, select { width: 100%; min-width: 0; padding: 9px; min-height: 42px; border: 1px solid #a8bcc5; border-radius: 4px; color: #17343d; background: #fff; font: inherit; }
 button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 12px; border-radius: 4px; border: 1px solid #628692; color: #fff; background: #205e6d; font: inherit; cursor: pointer; } button:disabled { opacity: .5; cursor: default; }
-.finish-table { overflow-x: auto; width: 100%; } table { width: 100%; min-width: 950px; border-collapse: collapse; }
-th, td { text-align: left; font-size: 13px; padding: 12px 10px; border-bottom: 1px solid #37535f; } th { background: #163341; color: #bad0d9; }
+.finish-table { max-height: clamp(280px, 58vh, 680px); overflow: auto; overscroll-behavior: contain; width: 100%; }
+table { width: 100%; min-width: 950px; border-collapse: collapse; }
+th, td { text-align: left; font-size: 13px; padding: 12px 10px; border-bottom: 1px solid #37535f; }
+th { position: sticky; top: 0; z-index: 2; background: #163341; color: #bad0d9; }
 small { display: block; color: #bed0d8; font-size: 11px; margin-top: 5px; overflow-wrap: anywhere; }
 .finish-detail { margin-top: 24px; } .finish-error { color: #ffb4bd; }
+.finish-notice { color: #d9c98d; font-size: 13px; margin: 8px 0 14px; }
 @media (max-width: 600px) { .finish-page { padding: 16px 12px; } h1 { font-size: 24px; } }
 </style>

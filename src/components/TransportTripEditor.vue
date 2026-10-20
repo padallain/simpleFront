@@ -27,6 +27,7 @@ const form = reactive({ date: new Date(Date.now() - 4 * 3600000).toISOString().s
   loadedPackages: null, deliveredPackages: null, capacityKg: null, capacityPackages: null,
   plannedStops: null, attendedStops: null, km: null, fuelLiters: null, allowances: 0,
   estimatedKm: null, estimatedAllowances: 0,
+  costOverrides: { enabled: false, fixedDaily: null, variablePerKm: null, coolingDaily: 0, theoreticalKmPerLiter: null },
   departureAt: '', returnAt: '', status: 'draft', notes: '', deliveryOutcome: '', returns: [],
   tariff: { mode: 'fijo', fixed: 0, percentage: 0, minimum: 0, base: 'entregado' } });
 const amount = computed(() => props.planningMode ? props.loadedAmount : sourceAmount.value ?? props.loadedAmount);
@@ -43,7 +44,13 @@ const visibleNumericFields = computed(() => props.planningMode
   : numericFields);
 const planningKeys = ['date', 'vehicleId', 'freightType', 'zone', 'routeCode', 'helperName', 'carrierId', 'tariff',
   'comparisonVehicleTypeId', 'loadedKg', 'loadedPackages', 'capacityKg', 'capacityPackages', 'plannedStops',
-  'estimatedKm', 'estimatedAllowances', 'notes'];
+  'estimatedKm', 'estimatedAllowances', 'costOverrides', 'notes'];
+const overrideFields = [
+  ['fixedDaily', 'Costo fijo diario del viaje ($)', '.0001'],
+  ['variablePerKm', 'Costo variable por km ($)', '.000001'],
+  ['coolingDaily', 'Equipo de frio por dia ($)', '.01'],
+  ['theoreticalKmPerLiter', 'Rendimiento teorico de este viaje (km/l)', '.01'],
+];
 const supportMetrics = [
   ['minimumSales', 'Venta minima', 'usd'], ['gap', 'Brecha', 'usd'], ['excess', 'Sobrecosto', 'usd'],
   ['profitMargin', 'Margen restante', 'percent'], ['fillKg', 'Llenado kg', 'percent'], ['fillPackages', 'Llenado bultos', 'percent'],
@@ -65,7 +72,44 @@ watch(() => form.vehicleId, id => {
   if (closed.value || hydrating.value) return;
   const vehicle = configuration.value?.vehicles.find(item => item.id === id);
   if (vehicle) { form.capacityKg = vehicle.capacityKg; form.capacityPackages = vehicle.capacityPackages; }
+  if (vehicle && form.costOverrides.enabled) loadTripCostDefaults();
 });
+
+function loadTripCostDefaults() {
+  const vehicle = configuration.value?.vehicles.find(item => item.id === form.vehicleId);
+  const type = configuration.value?.vehicleTypes.find(item => item.id === vehicle?.vehicleTypeId);
+  const required = ['depreciationMonthly', 'permitMonthly', 'driverDaily', 'helperDaily', 'workDays', 'fuelLiters',
+    'fuelKm', 'fuelPrice', 'oilMonthly', 'tiresMonthly', 'maintenanceMonthly', 'baseKmMonthly'];
+  if (!type || required.some(key => type[key] == null || type[key] === '' || !Number.isFinite(Number(type[key]))) || Number(type.workDays) <= 0
+    || Number(type.fuelKm) <= 0 || Number(type.baseKmMonthly) <= 0) {
+    return false;
+  }
+  const fixedMonthly = Number(type.depreciationMonthly) + Number(type.permitMonthly)
+    + (Number(type.driverDaily) + Number(type.helperDaily)) * Number(type.workDays);
+  const variableMonthly = (Number(type.fuelLiters) / Number(type.fuelKm)) * Number(type.baseKmMonthly) * Number(type.fuelPrice)
+    + Number(type.oilMonthly) + Number(type.tiresMonthly) + Number(type.maintenanceMonthly);
+  Object.assign(form.costOverrides, {
+    fixedDaily: Number((fixedMonthly / Number(type.workDays)).toFixed(4)),
+    variablePerKm: Number((variableMonthly / Number(type.baseKmMonthly)).toFixed(6)),
+    coolingDaily: Number(type.coolingDaily) || 0,
+    theoreticalKmPerLiter: Number((Number(type.fuelKm) / Number(type.fuelLiters)).toFixed(4)),
+  });
+  return true;
+}
+
+function toggleTripCostOverrides() {
+  error.value = '';
+  if (!form.costOverrides.enabled) return;
+  if (!form.vehicleId) {
+    form.costOverrides.enabled = false;
+    error.value = 'Selecciona primero el vehiculo para cargar los costos base que ajustaras.';
+    return;
+  }
+  if (!loadTripCostDefaults()) {
+    form.costOverrides.enabled = false;
+    error.value = 'El tipo de vehiculo no tiene costos base completos. Completa sus parametros antes de personalizar este viaje.';
+  }
+}
 const localTimestamp = value => value ? new Date(new Date(value).getTime() - 4 * 3600000).toISOString().slice(0, 16) : '';
 const apiTimestamp = value => value ? new Date(`${value}-04:00`).toISOString() : null;
 
@@ -81,7 +125,12 @@ async function loadTrip(id) {
       hydrating.value = true;
       closed.value = result.trip.status === 'closed';
       if (closed.value && result.trip.configurationSnapshot) configuration.value = result.trip.configurationSnapshot;
-      Object.assign(form, result.trip, { departureAt: localTimestamp(result.trip.departureAt), returnAt: localTimestamp(result.trip.returnAt) });
+      Object.assign(form, result.trip, {
+        tariff: { mode: 'fijo', fixed: 0, percentage: 0, minimum: 0, base: 'entregado', ...(result.trip.tariff || {}) },
+        costOverrides: { enabled: false, fixedDaily: null, variablePerKm: null, coolingDaily: 0, theoreticalKmPerLiter: null,
+          ...(result.trip.costOverrides || {}) },
+        departureAt: localTimestamp(result.trip.departureAt), returnAt: localTimestamp(result.trip.returnAt),
+      });
       updatedAt.value = result.trip.updatedAt;
       if (!props.planningMode || closed.value) {
         metrics.value = result.metrics; comparison.value = result.comparison; metricMode.value = 'Viaje';
@@ -106,10 +155,32 @@ onMounted(async () => {
   } catch (failure) { error.value = failure.message; }
 });
 function validate() {
-  return !busy.value && Boolean(configuration.value) && Boolean(formRef.value?.reportValidity());
+  if (busy.value) return false;
+  if (!configuration.value) {
+    error.value = 'No se pudo cargar la configuracion de transporte. Recarga la pantalla o vuelve a intentarlo.';
+    return false;
+  }
+  if (!props.planningMode && !configuration.value.vehicles?.length) {
+    error.value = 'No hay vehiculos registrados. Agrega la placa y el tipo en KPIs de transporte > Parametros > Vehiculos.';
+    return false;
+  }
+  if (!formRef.value?.reportValidity()) {
+    const invalidField = formRef.value?.querySelector(':invalid');
+    const label = invalidField?.closest('label');
+    const labelText = [...(label?.childNodes || [])]
+      .find(node => node.nodeType === Node.TEXT_NODE)?.textContent?.trim();
+    const fieldName = invalidField?.getAttribute('aria-label') || labelText || 'el campo resaltado';
+    error.value = `Falta completar ${fieldName}. En km, viaticos o devolucion escribe 0 si no aplica.`;
+    invalidField?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    invalidField?.focus?.();
+    return false;
+  }
+  error.value = '';
+  return true;
 }
 async function saveForRoute(id = props.routeId) {
-  if (!id || !validate()) { error.value = 'Completa vehiculo, fecha, zona, ruta y tarifa antes de guardar.'; return false; }
+  if (!id) { error.value = 'No se encontro el folio de la ruta.'; return false; }
+  if (!validate()) return false;
   busy.value = true; error.value = ''; feedback.value = '';
   try {
     const payload = props.planningMode
@@ -157,12 +228,13 @@ function selectReturnOrder(item, index) {
   item.companyName = order?.companyName || order?.company || '';
 }
 function addReturn() {
-  const item = { amount: null, kg: null, packages: null, reason: '' };
+  const item = { productCode: '', amount: null, kg: null, packages: null, reason: '' };
   selectReturnOrder(item, 0);
   form.returns.push(item);
 }
 async function finish() {
-  if (!props.routeId || (!closed.value && !validate())) return;
+  if (!props.routeId) { error.value = 'No se encontro el folio de la ruta que se va a liquidar.'; return; }
+  if (!closed.value && !validate()) return;
   if (!window.confirm('Se liquidara el viaje y se terminara la ruta. La liquidacion cerrada no se podra editar. Deseas continuar?')) return;
   busy.value = true; error.value = ''; feedback.value = '';
   try {
@@ -173,7 +245,14 @@ async function finish() {
     metrics.value = result.metrics; comparison.value = result.comparison; metricMode.value = 'Liquidacion';
     routeState.value = result.route.status; feedback.value = 'Viaje liquidado y ruta terminada.';
     emit('saved', result);
-  } catch (failure) { error.value = failure.message; await loadTrip(props.routeId); }
+  } catch (failure) {
+    if (failure.status === 404 || failure.status === 405) {
+      error.value = 'El servidor conectado no tiene el endpoint para liquidar viajes. Publica o reinicia el backend actualizado en Render.';
+    } else if (failure.status === 401) error.value = 'La sesion vencio. Inicia sesion de nuevo para liquidar el viaje.';
+    else if (failure.status === 403) error.value = 'Tu usuario no tiene permisos de administrador para liquidar el viaje.';
+    else error.value = failure.message;
+    await loadTrip(props.routeId);
+  }
   finally { busy.value = false; }
 }
 async function download(format) {
@@ -193,6 +272,7 @@ async function plan() {
       loadedAmount: amount.value, allowances: props.planningMode ? form.estimatedAllowances : form.allowances,
       comparisonVehicleTypeId: form.comparisonVehicleTypeId,
       tariff: form.freightType === 'externo' ? form.tariff : null,
+      costOverrides: form.freightType === 'interno' ? form.costOverrides : null,
     }) });
     metrics.value = result.metrics; comparison.value = result.comparison; metricMode.value = 'Estimacion';
   } catch (failure) { error.value = failure.message; }
@@ -207,6 +287,8 @@ defineExpose({ validate, saveForRoute });
     <router-link v-if="planningMode && routeId" :to="{ path: '/finish-routes', query: { routeId } }"><i class="mdi mdi-clipboard-check-outline" aria-hidden="true" /> Completar datos reales en Terminar ruta</router-link>
     <p v-if="error" class="error-message" role="alert">{{ error }}</p>
     <p v-if="feedback" class="feedback-message" role="status">{{ feedback }}</p>
+    <p v-if="settlementMode && configuration && !configuration.vehicles?.length" class="setup-warning" role="status">Configura primero el vehiculo en <router-link to="/transport-kpis">KPIs de transporte → Parametros → Vehiculos</router-link>. Sin un vehiculo registrado no se puede calcular el flete ni liquidar el viaje.</p>
+    <p v-if="settlementMode && !closed" class="settlement-hint">Para cerrar se requiere resultado de entrega, vehiculo, km reales, viaticos (0 si no hubo), paradas atendidas y horarios de salida y regreso.</p>
     <details v-if="orders.length" class="delivery-details"><summary>Pedidos de la guia ({{ orders.length }})</summary><div class="returns-scroll"><table><thead><tr><th>Empresa</th><th>Documento</th><th>Cliente / sede</th><th>Fecha</th><th>Cargado ($)</th></tr></thead><tbody><tr v-for="(order, index) in orders" :key="index"><td>{{ order.companyName || order.company || 'Sin empresa registrada' }}</td><td>{{ order.orderNumber }}</td><td>{{ order.clientName || order.clientId }} {{ order.sucursal }}</td><td>{{ order.date }}</td><td>{{ usd(order.total) }}</td></tr></tbody></table></div></details>
     <details v-if="issueReports.length" class="delivery-details"><summary>Incidencias reportadas ({{ issueReports.length }})</summary><article v-for="(issue, index) in issueReports" :key="issue._id || index"><strong>{{ issue.orderNumber }} - {{ issue.clientName || issue.clientId }}</strong><p v-for="(item, itemIndex) in issue.items" :key="itemIndex">{{ item.productId }}: {{ item.novelty }} ({{ item.quantity }} {{ item.presentationType }})</p></article></details>
     <form ref="formRef" @submit.prevent="saveForRoute()">
@@ -214,8 +296,9 @@ defineExpose({ validate, saveForRoute });
         <section v-if="settlementMode" class="delivery-details">
           <label>Resultado de la entrega<select :value="form.deliveryOutcome" :required="!closed" @change="chooseOutcome"><option value="">{{ closed ? 'No declarado en el viaje anterior' : 'Seleccionar resultado' }}</option><option value="sin_novedad">Entregado sin novedad</option><option value="con_devoluciones">Con devoluciones / rechazos</option><option value="con_novedades">Otras novedades, sin devolucion</option></select></label>
           <template v-if="form.deliveryOutcome === 'con_devoluciones'">
-            <div class="returns-scroll"><table><thead><tr><th>Pedido</th><th>Monto ($)</th><th>Kg</th><th>Bultos</th><th>Motivo</th><th></th></tr></thead><tbody><tr v-for="(item, index) in form.returns" :key="index">
+            <div class="returns-scroll"><table><thead><tr><th>Pedido</th><th>Codigo del producto</th><th>Monto ($)</th><th>Kg</th><th>Bultos</th><th>Motivo</th><th></th></tr></thead><tbody><tr v-for="(item, index) in form.returns" :key="index">
               <td><select :value="item.orderIndex" aria-label="Pedido devuelto" required @change="selectReturnOrder(item, $event.target.value)"><option v-for="(order, orderIndex) in orders" :key="orderIndex" :value="orderIndex">{{ order.companyName || order.company || 'Sin empresa registrada' }} - {{ order.orderNumber }} - {{ order.clientName || order.clientId }}</option></select></td>
+              <td><input v-model="item.productCode" type="text" maxlength="100" required aria-label="Codigo del producto devuelto" placeholder="Ej. HBL-900" /></td>
               <td><input v-model.number="item.amount" type="number" min=".01" step=".01" required aria-label="Monto de la devolucion" /></td>
               <td><input v-model.number="item.kg" type="number" min="0" step=".01" aria-label="Kg devueltos" /></td>
               <td><input v-model.number="item.packages" type="number" min="0" step="1" aria-label="Bultos devueltos" /></td>
@@ -245,6 +328,13 @@ defineExpose({ validate, saveForRoute });
             </template>
             <label>Tipo propio para comparar<select v-model="form.comparisonVehicleTypeId"><option value="">Sin comparacion</option><option v-for="type in configuration?.vehicleTypes" :key="type.id" :value="type.id">{{ type.name }}</option></select></label>
           </template>
+          <label v-if="form.freightType === 'interno'" class="wide trip-override-toggle">
+            <span><input v-model="form.costOverrides.enabled" type="checkbox" :disabled="busy || closed" @change="toggleTripCostOverrides" /> Ajustar parametros de costo solo para este viaje</span>
+          </label>
+          <div v-if="form.freightType === 'interno' && form.costOverrides.enabled" class="wide trip-override-fields">
+            <p>Estos valores reemplazan el costo base del vehiculo solamente en esta guia; no modifican los parametros generales ni otros viajes.</p>
+            <label v-for="[key, title, step] in overrideFields" :key="key">{{ title }}<input v-model.number="form.costOverrides[key]" type="number" min="0" :step="step" required :disabled="busy || closed" /></label>
+          </div>
           <label v-for="[key, title, step] in visibleNumericFields" :key="key">{{ title }}<input v-model.number="form[key]" type="number" min="0" :step="step" :readonly="settlementMode && key === 'returnedAmount' && !!form.deliveryOutcome" :required="settlementMode && ['km', 'allowances', 'plannedStops', 'attendedStops'].includes(key)" /></label>
           <template v-if="!planningMode">
             <label v-if="form.freightType === 'interno'">Litros de combustible cargados<input v-model.number="form.fuelLiters" type="number" min="0" step=".01" /></label>
@@ -285,6 +375,9 @@ input, select, textarea { width: 100%; min-width: 0; min-height: 42px; padding: 
 .transport-actions { justify-content: flex-start; margin-top: 16px; }
 button { display: inline-flex; align-items: center; gap: 6px; padding: 10px 14px; background: #1e6776; color: #fff; border: 1px solid #699ca6; border-radius: 4px; font: inherit; cursor: pointer; }
 .error-message { color: #ffb3ba; } .feedback-message { color: #a9edc5; }
+.setup-warning { padding: 12px; border-left: 4px solid #e7bb54; background: #463d28; color: #fff0bc; }
+.setup-warning a { color: #fff0bc; text-decoration: underline; }
+.settlement-hint { color: #d3e3e9; font-size: 13px; }
 .trip-results { margin-top: 20px; padding-top: 14px; border-top: 3px solid #88a6b4; }
 .state-rojo { border-color: #ef6775; } .state-amarillo { border-color: #e8c566; } .state-verde { border-color: #70d3a1; }
 .state-label { text-transform: capitalize; }
@@ -299,4 +392,9 @@ dt { font-size: 12px; color: #bfd0d9; } dd { margin: 5px 0 0; font-size: 15px; }
 .returns-scroll th:first-child { min-width: 200px; }
 .returns-scroll input { min-width: 100px; }
 button:disabled { opacity: .55; cursor: default; }
+.trip-override-toggle { margin-top: 8px; }
+.trip-override-toggle > span { display: flex; align-items: center; gap: 9px; }
+.trip-override-toggle input { width: 18px; min-height: 18px; height: 18px; accent-color: #54c49a; }
+.trip-override-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 12px; padding: 14px; border: 1px solid #c2aa68; border-radius: 4px; background: #393624; }
+.trip-override-fields p { grid-column: 1 / -1; margin: 0; color: #f6e7bd; font-size: 13px; }
 </style>

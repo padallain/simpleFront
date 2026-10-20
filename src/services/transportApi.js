@@ -5,7 +5,12 @@ export async function transportRequest(path, options = {}) {
     ...options, headers: { 'Content-Type': 'application/json', ...options.headers }, credentials: 'include',
   });
   const result = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(result?.message || 'No se pudo consultar transporte.');
+  if (!response.ok) {
+    const error = new Error(result?.message || `Error HTTP ${response.status} al consultar transporte.`);
+    error.status = response.status;
+    error.path = path;
+    throw error;
+  }
   return result;
 }
 

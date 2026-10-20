@@ -11,7 +11,8 @@ const dateLabel = (value) => String(value || '').split('-').reverse().join('/');
 
 export function createLoadGuidePdf(guide, route = {}) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  const { orders, totalAmount } = summarizeLoadGuide(guide);
+  const guideLists = guide.subGuides?.length ? guide.subGuides : [guide];
+  const { totalAmount } = summarizeLoadGuide(guide);
   const margin = 12;
   const width = 186;
   const bottom = 278;
@@ -72,10 +73,15 @@ export function createLoadGuidePdf(guide, route = {}) {
   text(`Fecha: ${dateLabel(guide.date)}    Pedidos: ${orders.length}`);
   text(`Chofer: ${route.driverName || route.driverId || ''}`);
   text(`Peso total: ${format(route.totalWeight)} kg`);
-  table(['#', 'COD. CLIENTE', 'CLIENTE', 'EMPRESA', 'DOCUMENTO', 'FECHA PEDIDO', 'MONTO $'],
-    [8, 22, 43, 30, 31, 25, 27],
-    orders.map((order, index) => [index + 1, order.clientId, order.clientName || order.clientId, order.companyName || order.company || 'Sin empresa registrada', order.orderNumber, dateLabel(order.date) || '-', format(order.total, 2)]),
-    ['', '', 'TOTAL DE LOS PEDIDOS', '', '', '', format(totalAmount, 2)]);
+  for (const companyGuide of guideLists) {
+    const { orders, totalAmount: companyTotal } = summarizeLoadGuide(companyGuide);
+    const companyName = companyGuide.companyName || orders[0]?.companyName || orders[0]?.company || 'Sin empresa registrada';
+    text(`${companyName} | GUIA ${companyGuide.number || guide.number || ''}`, { bold: true, size: 11, gap: 2 });
+    table(['#', 'COD. CLIENTE', 'CLIENTE', 'EMPRESA', 'DOCUMENTO', 'FECHA PEDIDO', 'MONTO $'],
+      [8, 22, 43, 30, 31, 25, 27],
+      orders.map((order, index) => [index + 1, order.clientId, order.clientName || order.clientId, order.companyName || order.company || companyName, order.orderNumber, dateLabel(order.date) || '-', format(order.total, 2)]),
+      ['', '', 'TOTAL DE LA GUIA', '', '', '', format(companyTotal, 2)]);
+  }
   if (route.routeComment) text(`Observaciones: ${route.routeComment}`);
   ensure(26);
   cursor += 8;
@@ -93,6 +99,7 @@ export function createLoadGuidePdf(guide, route = {}) {
 }
 
 export function downloadLoadGuide(guide, route) {
-  const filename = `guia-carga-${guide.number}-${guide.date}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const guideNumber = guide.subGuides?.map(item => item.number).filter(Boolean).join('-') || guide.number || route.routeId || 'ruta';
+  const filename = `guia-carga-${guideNumber}-${guide.date}`.replace(/[^a-zA-Z0-9_-]/g, '_');
   createLoadGuidePdf(guide, route).save(`${filename}.pdf`);
 }

@@ -13,8 +13,7 @@ const PAGE_TITLES = {
   '/daily-check': 'Chequeo Diario',
   '/fuel-report': 'Reporte Combustible',
   '/driver-route': 'Mi Ruta',
-  '/report-client-location': 'Reportar Cliente',
-  '/client-location-reports': 'Denuncias',
+  '/fix-client-address': 'Arreglar direccion',
   '/driver-analytics': 'Análisis Choferes',
   '/warehouse-picker-analytics': 'Análisis Almacenistas',
   '/dispatch-control': 'Dispatch Control',
@@ -46,8 +45,7 @@ function goToRoutes()                  { router.push('/routes') }
 function goToDailyCheck()              { router.push('/daily-check') }
 function goToFuelReport()              { router.push('/fuel-report') }
 function goToDriverRoute()             { router.push('/driver-route') }
-function goToClientReport()            { router.push('/report-client-location') }
-function goToClientLocationReports()   { router.push('/client-location-reports') }
+function goToClientReport()            { router.push('/fix-client-address') }
 function goToDriverAnalytics()         { router.push('/driver-analytics') }
 function goToWarehousePickerAnalytics(){ router.push('/warehouse-picker-analytics') }
 function goToWarehousePicking()        { router.push('/warehouse-picking') }
@@ -154,8 +152,7 @@ watch(() => route.fullPath, () => {
 
           <div v-if="expandedSection === 'logistica'" class="nav-section-panel">
             <button v-if="isAdminUser || isWarehouseUser" class="nav-chip" type="button" @click="goToWarehousePicking">Picking</button>
-            <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToClientReport">Reportar cliente</button>
-            <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToClientLocationReports">Denuncias</button>
+            <button v-if="isAdminUser || isDriverUser" class="nav-chip" type="button" @click="goToClientReport">Arreglar direccion</button>
             <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToDispatchControl">Dispatch control</button>
             <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToVehicleMaintenance">Mantenimiento</button>
             <button v-if="isAdminUser" class="nav-chip" type="button" @click="goToFleetConsumption">Mi flota</button>

@@ -1,10 +1,11 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from 'vue-router';
 import RouteOsmMap from "../components/RouteOsmMap.vue";
 import TransportTripEditor from "../components/TransportTripEditor.vue";
 import DispatchCompanyPicker from "../components/DispatchCompanyPicker.vue";
 import { downloadLoadGuide } from "../services/loadGuidePdf";
+import { parseRouteMessage, parseGuideMessage } from "../services/routeMessage";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 const pageRoute = useRoute();
@@ -13,7 +14,12 @@ function getTodayOrderDate() {
   return new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 const editingGuideId = ref('');
+const creationMode = ref('route');
+const creatingGuide = computed(() => creationMode.value === 'guide');
+const routeMessageImported = ref(false);
 const guideUpdatedAt = ref(null);
+const guideNumber = ref('');
+const guideNumbersByCompany = reactive({});
 const priorityPreviewLoading = ref(false);
 let priorityPreviewSequence = 0;
 
@@ -24,6 +30,7 @@ const transportEditor = ref(null);
 const transportRouteId = ref('');
 const routeComment = ref("");
 const routeWeight = ref(0);
+const routeMessageInput = ref('');
 const paradaInput = ref("");
 const orderNumberInput = ref("");
 const orderDateInput = ref(getTodayOrderDate());
@@ -50,6 +57,8 @@ const sedePickerVisible = ref(false);
 const sedePendingId = ref("");
 const sedePendingNombre = ref("");
 const sedeOpciones = ref([]);
+const sedePickerRef = ref(null);
+let pendingImportBranch = null;
 const serverResponse = ref(null);
 const routeTable = ref([]);
 const addingStop = ref(false);
@@ -120,6 +129,34 @@ const totalOrderAmount = computed(() => paradas.value.reduce((sum, stop) => (
   sum + Math.round(((Number(stop.orderTotal) || 0) + Number.EPSILON) * 100)
 ), 0) / 100);
 const plannedTransportStops = computed(() => new Set(paradas.value.map(buildStopKey)).size);
+const companyGroups = computed(() => {
+  const groups = new Map();
+  for (const stop of paradas.value) {
+    if (!groups.has(stop.companyId)) {
+      groups.set(stop.companyId, {
+        companyId: stop.companyId,
+        companyName: companyCatalog.value.find(company => company._id === stop.companyId)?.name || 'Empresa sin nombre',
+        orders: [],
+      });
+    }
+    groups.get(stop.companyId).orders.push(stop);
+  }
+  return [...groups.values()].map(group => ({ ...group,
+    totalAmount: group.orders.reduce((sum, stop) => sum + Math.round(((Number(stop.orderTotal) || 0) + Number.EPSILON) * 100), 0) / 100,
+  }));
+});
+
+watch(companyIdInput, companyId => { guideNumber.value = guideNumbersByCompany[companyId] || ''; });
+watch(guideNumber, number => { if (companyIdInput.value) guideNumbersByCompany[companyIdInput.value] = number; });
+
+const visibleStopGroups = computed(() => creatingGuide.value ? companyGroups.value
+  : [{ companyId: 'route', orders: paradas.value }]);
+
+function selectCreationMode(mode) {
+  if (mode === creationMode.value) return;
+  if (!newGuide()) return;
+  creationMode.value = mode;
+}
 
 watch(includeTransport, enabled => {
   if (enabled && serverResponse.value?.savedRoute?.routeId && !transportRouteId.value) {
@@ -672,7 +709,9 @@ watch(
 async function revealLatestStopRow() {
   await nextTick();
 
-  const tableRoot = paradasTableRef.value?.$el || paradasTableRef.value;
+  const tableRefs = Array.isArray(paradasTableRef.value) ? paradasTableRef.value : [paradasTableRef.value];
+  const tableRoots = tableRefs.map(table => table?.$el || table).filter(Boolean);
+  const tableRoot = tableRoots.find(table => table.querySelector?.('.recent-stop-row')) || tableRoots[0];
   const scrollWrap = tableRoot?.querySelector?.(".el-scrollbar__wrap");
 
   if (scrollWrap) {
@@ -726,6 +765,7 @@ async function addStopAndReveal(stop) {
 
   paradas.value.push({
     companyId: companyIdInput.value,
+    guideNumber: guideNumber.value.trim(),
     orderNumber: orderNumberInput.value.trim(),
     orderDate: orderDateInput.value,
     orderTotal: Number(orderTotalInput.value),
@@ -735,18 +775,26 @@ async function addStopAndReveal(stop) {
   orderNumberInput.value = '';
   orderDateInput.value = getTodayOrderDate();
   orderTotalInput.value = null;
-  companyIdInput.value = defaultCompanyId.value;
   markLatestAddedStop(stopKey);
   await revealLatestStopRow();
 }
 
 onBeforeUnmount(() => {
+  cancelSedeSelection();
   if (stopHighlightTimer) {
     window.clearTimeout(stopHighlightTimer);
   }
 });
 
 async function agregarSede(sede) {
+  if (pendingImportBranch) {
+    const resolve = pendingImportBranch;
+    pendingImportBranch = null;
+    sedePickerVisible.value = false;
+    sedeOpciones.value = [];
+    resolve(sede);
+    return;
+  }
   await addStopAndReveal({
     parada: sede.id,
     name: sede.sucursal ? `${sede.nombre} — ${sede.sucursal}` : sede.nombre,
@@ -761,8 +809,27 @@ async function agregarSede(sede) {
   focusParadaInput();
 }
 
+function cancelSedeSelection() {
+  const resolve = pendingImportBranch;
+  pendingImportBranch = null;
+  sedePickerVisible.value = false;
+  sedeOpciones.value = [];
+  if (resolve) resolve(null);
+}
+
+async function selectImportBranch(requested, branches, clientName) {
+  const selection = new Promise(resolve => { pendingImportBranch = resolve; });
+  sedePendingId.value = requested.clientId;
+  sedePendingNombre.value = `${clientName || requested.clientId} (${requested.clientId})${requested.sucursal ? ` - Sede indicada: ${requested.sucursal}` : ''}`;
+  sedeOpciones.value = branches;
+  sedePickerVisible.value = true;
+  await nextTick();
+  sedePickerRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  return selection;
+}
+
 async function agregarParada() {
-  if (addingStop.value || sedePickerVisible.value) {
+  if (loading.value || addingStop.value || sedePickerVisible.value) {
     return;
   }
 
@@ -773,13 +840,13 @@ async function agregarParada() {
     return;
   }
 
-  if (!companyCatalog.value.some(company => company._id === companyIdInput.value)) {
+  if (creatingGuide.value && !companyCatalog.value.some(company => company._id === companyIdInput.value)) {
     errorMessage.value = 'Selecciona o agrega la empresa a la que pertenece el pedido.';
     return;
   }
 
-  if (!orderNumberInput.value.trim() || !orderDateInput.value || orderTotalInput.value == null || orderTotalInput.value === ''
-    || !Number.isFinite(Number(orderTotalInput.value)) || Number(orderTotalInput.value) < 0) {
+  if (creatingGuide.value && (!orderNumberInput.value.trim() || !orderDateInput.value || orderTotalInput.value == null || orderTotalInput.value === ''
+    || !Number.isFinite(Number(orderTotalInput.value)) || Number(orderTotalInput.value) < 0)) {
     errorMessage.value = "Ingresa el numero, la fecha del pedido y un monto valido antes de agregar el cliente.";
     return;
   }
@@ -831,6 +898,132 @@ async function agregarParada() {
 
   paradaInput.value = "";
   focusParadaInput();
+}
+
+async function createRouteFromMessage() {
+  if (loading.value || addingStop.value || priorityPreviewLoading.value || sedePickerVisible.value) return;
+  errorMessage.value = '';
+  let parsed;
+  const isGuideMessage = /(?:^|\n)\s*(?:CREAR GU[IÍ]AS?(?: Y RUTA)?\s*(?:\r?$)|EMPRESA\s*:)/im.test(routeMessageInput.value);
+  try {
+    if (isGuideMessage && !creatingGuide.value) throw new Error('Selecciona Crear guia para importar un mensaje con empresas y pedidos.');
+    parsed = isGuideMessage ? parseGuideMessage(routeMessageInput.value) : parseRouteMessage(routeMessageInput.value);
+  }
+  catch (failure) { errorMessage.value = failure.message; return; }
+  if ((paradas.value.length || serverResponse.value) && !window.confirm('Reemplazar la lista actual con los clientes del mensaje?')) return;
+  loading.value = true;
+  let ready = false;
+  try {
+    const clientsById = new Map();
+    const importedStops = [];
+    const missingClients = [];
+    const resolvedStops = new Map();
+    const importedGuideNumbers = {};
+    let priorityStop = null;
+    const normalizeBranch = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+    const requestedKey = stop => JSON.stringify([stop.clientId, normalizeBranch(stop.sucursal)]);
+    let registeredCompanies = companyCatalog.value;
+    if (creatingGuide.value && !registeredCompanies.length) {
+      const response = await fetch(`${API_BASE_URL}/dispatch-companies`, { credentials: 'include' });
+      const catalog = await response.json().catch(() => null);
+      if (!response.ok || !Array.isArray(catalog?.companies)) throw new Error('No se pudieron consultar las empresas para importar la guia.');
+      registeredCompanies = catalog.companies;
+    }
+    const resolvedGuides = (parsed.guides || []).map(guide => {
+      const matches = registeredCompanies.filter(company => normalizeBranch(company.name) === normalizeBranch(guide.companyName));
+      if (matches.length !== 1) throw new Error(`La empresa ${guide.companyName} no esta registrada o su nombre es ambiguo.`);
+      importedGuideNumbers[matches[0]._id] = guide.number;
+      return { ...guide, companyId: matches[0]._id };
+    });
+    for (const requested of parsed.stops) {
+      if (!clientsById.has(requested.clientId)) {
+        const response = await fetch(`${API_BASE_URL}/getClient/${encodeURIComponent(requested.clientId)}`);
+        const client = await response.json().catch(() => null);
+        if (response.status !== 404 && (!response.ok || !client)) throw new Error(`No se pudo consultar el cliente ${requested.clientId}. Verifica el ID y vuelve a intentar.`);
+        clientsById.set(requested.clientId, response.status === 404 ? null : client);
+      }
+      const client = clientsById.get(requested.clientId);
+      const branches = client?.sedes?.length ? client.sedes : client ? [client] : [];
+      const matches = requested.sucursal
+        ? branches.filter(branch => normalizeBranch(branch.sucursal) === normalizeBranch(requested.sucursal))
+        : branches;
+      let selected = matches[0];
+      if (client && matches.length !== 1) {
+        selected = await selectImportBranch(requested, branches, client.nombre);
+        if (!selected) throw new Error('Importacion cancelada. La lista anterior no se modifico.');
+      }
+      if (selected && [selected.location?.latitude, selected.location?.longitude].some(value => value == null || value === '' || !Number.isFinite(Number(value)))) {
+        throw new Error(`El cliente ${requested.clientId}${selected.sucursal ? ` (${selected.sucursal})` : ''} no tiene coordenadas validas.`);
+      }
+      stopKeySequence += 1;
+      const stop = { parada: requested.clientId, sucursal: selected ? selected.sucursal || '' : requested.sucursal || '',
+        name: !selected ? 'No encontrado' : selected.sucursal ? `${selected.nombre || requested.clientId} - ${selected.sucursal}` : selected.nombre || requested.clientId,
+        location: selected?.location || null, __stopKey: `import-${stopKeySequence}` };
+      importedStops.push(stop);
+      if (!selected) missingClients.push(`${stop.parada}${stop.sucursal ? ` (${stop.sucursal})` : ''}`);
+      resolvedStops.set(requestedKey(requested), stop);
+      if (requested === parsed.priority && selected) priorityStop = stop;
+    }
+    let importedRows = importedStops;
+    if (creatingGuide.value) {
+      companyCatalog.value = registeredCompanies;
+      if (resolvedGuides.length) {
+        importedRows = resolvedGuides.flatMap(guide => guide.orders.map(order => {
+          stopKeySequence += 1;
+          return { ...resolvedStops.get(requestedKey(order)), companyId: guide.companyId,
+            orderNumber: order.orderNumber, orderDate: order.date, orderTotal: order.total,
+            __stopKey: `import-order-${stopKeySequence}` };
+        }));
+      } else {
+        const selectedCompany = registeredCompanies.find(company => company._id === companyIdInput.value);
+        const selectedCompanyId = selectedCompany?._id || '';
+        importedGuideNumbers[selectedCompanyId] = guideNumbersByCompany[selectedCompanyId] || guideNumber.value || '';
+        importedRows = importedStops.map(stop => ({ ...stop, companyId: selectedCompanyId,
+          orderNumber: '', orderDate: '', orderTotal: null }));
+      }
+      for (const companyId of Object.keys(guideNumbersByCompany)) delete guideNumbersByCompany[companyId];
+      Object.assign(guideNumbersByCompany, importedGuideNumbers);
+      companyIdInput.value = importedRows[0]?.companyId || '';
+      guideNumber.value = guideNumbersByCompany[companyIdInput.value] || '';
+    }
+    routeMessageImported.value = !creatingGuide.value;
+    driverId.value = parsed.driverId;
+    driverName.value = parsed.driverName;
+    routeWeight.value = parsed.routeWeight;
+    routeComment.value = parsed.routeComment;
+    paradas.value = importedRows;
+    serverResponse.value = null;
+    editableRoute.value = []; routeTable.value = [];
+    selectedRouteType.value = 'closest';
+    editingGuideId.value = ''; guideUpdatedAt.value = null;
+    includeTransport.value = false; transportRouteId.value = '';
+    anchorClientId.value = priorityStop?.parada || '';
+    anchorSucursal.value = priorityStop?.sucursal || '';
+    anchorStopKey.value = priorityStop ? buildStopKey(priorityStop) : '';
+    anchorReason.value = 'priority';
+    paradaInput.value = ''; addStopStatus.value = ''; feedback.value = ''; shareFeedback.value = '';
+    cancelClientIdEdit();
+    await router.replace({ path: '/routes', query: {} });
+    await nextTick();
+    if (missingClients.length) {
+      addStopStatusType.value = 'warning';
+      addStopStatus.value = `Clientes no encontrados: ${missingClients.join(', ')}. Permanecen en la lista para revision.`;
+      if (parsed.priority && !priorityStop) addStopStatus.value += ' La primera parada indicada no se pudo fijar porque el cliente no existe.';
+    }
+    if (creatingGuide.value) feedback.value = `${importedRows.length} pedido(s) cargado(s) en ${companyGroups.value.length} lista(s) de guia. Pendiente de guardar.`;
+    else feedback.value = `${importedStops.length} cliente(s) cargado(s). Pulsa Calcular ruta optima para ver el recorrido.`;
+    ready = true;
+  } catch (failure) { errorMessage.value = failure.message; }
+  finally { loading.value = false; }
+}
+
+function assignPendingGuideCompany(companyId) {
+  if (!companyCatalog.value.some(company => company._id === companyId)) return;
+  for (const stop of paradas.value) if (!stop.companyId) stop.companyId = companyId;
+  if (!guideNumbersByCompany[companyId]) guideNumbersByCompany[companyId] = guideNumbersByCompany[''] || '';
+  delete guideNumbersByCompany[''];
+  companyIdInput.value = companyId;
+  guideNumber.value = guideNumbersByCompany[companyId] || '';
 }
 
 function eliminarParada(idx) {
@@ -932,28 +1125,33 @@ async function copyNearbyGroup(group) {
   }
 }
 
-async function makeRoute() {
-  if (priorityPreviewLoading.value) return;
+async function makeRoute({ previewOnly = false } = {}) {
+  if (loading.value || addingStop.value || priorityPreviewLoading.value) return;
   if (!paradas.value.length) {
     errorMessage.value = "Agrega al menos un cliente antes de generar la ruta.";
     return;
   }
 
-  if (!driverId.value.trim()) {
+  if (creatingGuide.value && !driverId.value.trim()) {
     errorMessage.value = "Ingresa el ID del chofer para guardar la ruta y sus pedidos.";
     return;
   }
   const incompleteOrder = paradas.value.find((stop) => !String(stop.orderNumber || '').trim()
-    || !companyCatalog.value.some(company => company._id === stop.companyId)
     || !stop.orderDate
     || stop.orderTotal == null || stop.orderTotal === ''
     || !Number.isFinite(Number(stop.orderTotal)) || Number(stop.orderTotal) < 0);
-  if (incompleteOrder) {
-    errorMessage.value = `Completa la empresa, numero de documento, fecha y monto del pedido para ${incompleteOrder.parada}.`;
+  const incompleteGuide = companyGroups.value.find(group => !companyCatalog.value.some(company => company._id === group.companyId)
+    || !String(guideNumbersByCompany[group.companyId] || '').trim());
+  if (creatingGuide.value && incompleteGuide) {
+    errorMessage.value = `Selecciona la empresa y escribe el numero de guia para ${incompleteGuide.companyName}.`;
+    return;
+  }
+  if (creatingGuide.value && incompleteOrder) {
+    errorMessage.value = `Completa numero de documento, fecha y monto del pedido para ${incompleteOrder.parada}.`;
     return;
   }
 
-  if (includeTransport.value && !transportEditor.value?.validate()) {
+  if (creatingGuide.value && includeTransport.value && !transportEditor.value?.validate()) {
     errorMessage.value = "Completa los datos de transporte antes de crear la ruta.";
     return;
   }
@@ -986,8 +1184,8 @@ async function makeRoute() {
     }
     selectedStops.push(...requestedByKey.values());
 
-    const updating = Boolean(editingGuideId.value);
-    const endpoint = updating ? `/driver-routes/${editingGuideId.value}/guide` : '/makeRoute';
+    const updating = !previewOnly && creatingGuide.value && Boolean(editingGuideId.value);
+    const endpoint = previewOnly ? '/makeRoute/preview' : updating ? `/driver-routes/${editingGuideId.value}/guide` : '/makeRoute';
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: updating ? 'PATCH' : 'POST',
       headers: {
@@ -1000,7 +1198,15 @@ async function makeRoute() {
         routeComment: routeComment.value.trim(),
         routeType: selectedRouteType.value,
         routeWeight: totalWeight.value,
-        loadGuide: {
+        loadGuide: creatingGuide.value ? {
+          subGuides: companyGroups.value.map(group => ({
+            companyId: group.companyId,
+            number: String(guideNumbersByCompany[group.companyId] || '').trim(),
+            orders: group.orders.map(stop => ({
+              clientId: String(stop.parada).trim(), sucursal: String(stop.sucursal || '').trim(),
+              orderNumber: String(stop.orderNumber).trim(), date: stop.orderDate, total: Number(stop.orderTotal),
+            })),
+          })),
           orders: paradas.value.map((stop) => ({
             companyId: stop.companyId,
             clientId: String(stop.parada).trim(),
@@ -1009,7 +1215,7 @@ async function makeRoute() {
             date: stop.orderDate,
             total: Number(stop.orderTotal),
           })),
-        },
+        } : undefined,
         anchorClientId: anchorClientId.value.trim() || undefined,
         anchorSucursal: anchorSucursal.value.trim() || undefined,
         anchorStopKey: anchorStopKey.value.trim() || undefined,
@@ -1037,17 +1243,24 @@ async function makeRoute() {
     }
 
     serverResponse.value = result;
-    if (result?.savedRoute?.routeId) {
+    if (creatingGuide.value && result?.savedRoute?.routeId) {
       editingGuideId.value = String(result.savedRoute.routeId);
       guideUpdatedAt.value = result.savedRoute.updatedAt;
+      for (const companyId of Object.keys(guideNumbersByCompany)) delete guideNumbersByCompany[companyId];
+      for (const guide of result.savedRoute.loadGuide?.subGuides || []) guideNumbersByCompany[guide.companyId] = guide.number;
+      companyIdInput.value = result.savedRoute.loadGuide?.subGuides?.[0]?.companyId || companyIdInput.value;
+      guideNumber.value = guideNumbersByCompany[companyIdInput.value] || result.savedRoute.loadGuide?.number || '';
       await router.replace({ path: '/routes', query: { guideId: editingGuideId.value } });
     }
     selectedRouteType.value = result?.routeType || selectedRouteType.value;
-    feedback.value = result?.savedRoute?.routeId
-      ? `Guia ${result.savedRoute.loadGuide?.number || result.savedRoute.routeId} ${updating ? 'actualizada' : 'creada'} para el chofer ${result.savedRoute.driverId}.`
+    const savedGuideNumbers = result?.savedRoute?.loadGuide?.subGuides?.map(guide => guide.number) || [];
+    feedback.value = !creatingGuide.value
+      ? result?.savedRoute?.routeId ? `Ruta guardada para el chofer ${result.savedRoute.driverId}.` : 'Ruta optima calculada.'
+      : result?.savedRoute?.routeId
+      ? `Guias ${savedGuideNumbers.join(', ') || result.savedRoute.loadGuide?.number || result.savedRoute.routeId} ${result.updated ? 'actualizadas' : 'creadas'} para el chofer ${result.savedRoute.driverId}.`
       : "Rutas calculadas correctamente. Selecciona un tipo y agrega un ID de chofer para dejar la opcion guardada.";
 
-    if (includeTransport.value && result?.savedRoute?.routeId) {
+    if (creatingGuide.value && includeTransport.value && result?.savedRoute?.routeId) {
       const saved = await transportEditor.value.saveForRoute(String(result.savedRoute.routeId));
       if (!saved) feedback.value += " La ruta quedo guardada; revisa el formulario de transporte para guardar el viaje.";
       transportRouteId.value = String(result.savedRoute.routeId);
@@ -1068,7 +1281,14 @@ async function loadGuide(id) {
     if (!response.ok) throw new Error(result.message || 'No se pudo cargar la guia.');
     const saved = result.route;
     if (!saved.loadGuide?.orders?.length) throw new Error('La ruta no tiene pedidos de una guia guardada.');
+    creationMode.value = 'guide';
     editingGuideId.value = String(saved._id); guideUpdatedAt.value = saved.updatedAt;
+    for (const companyId of Object.keys(guideNumbersByCompany)) delete guideNumbersByCompany[companyId];
+    const savedSubGuides = saved.loadGuide.subGuides || [...new Set(saved.loadGuide.orders.map(order => order.companyId))]
+      .filter(Boolean).map(companyId => ({ companyId, number: saved.loadGuide.number || '', orders: saved.loadGuide.orders.filter(order => order.companyId === companyId) }));
+    for (const guide of savedSubGuides) guideNumbersByCompany[guide.companyId] = guide.number;
+    companyIdInput.value = savedSubGuides[0]?.companyId || saved.loadGuide.companyId || saved.loadGuide.orders[0]?.companyId || '';
+    guideNumber.value = guideNumbersByCompany[companyIdInput.value] || saved.loadGuide.number || '';
     driverId.value = saved.driverId; driverName.value = saved.driverName || '';
     routeComment.value = saved.routeComment || ''; routeWeight.value = saved.totalWeight || 0;
     selectedRouteType.value = saved.routeType || 'closest';
@@ -1076,11 +1296,12 @@ async function loadGuide(id) {
     anchorSucursal.value = saved.anchorSucursal || '';
     anchorStopKey.value = saved.anchorStopKey || (anchorClientId.value ? buildStopKey({ clientId: anchorClientId.value, sucursal: anchorSucursal.value }) : '');
     anchorReason.value = saved.anchorReason || 'priority';
+    const savedGuideNumberByCompany = new Map(savedSubGuides.map(guide => [guide.companyId, guide.number]));
     paradas.value = saved.loadGuide.orders.map((order, index) => {
       const matches = (saved.stops || []).filter(stop => stop.clientId === order.clientId);
       const stop = matches.find(item => (item.sucursal || '') === (order.sucursal || '')) || (matches.length === 1 ? matches[0] : null);
       return { parada: order.clientId, sucursal: order.sucursal || '', name: order.clientName || stop?.nombre || order.clientId,
-        location: stop?.location || null, companyId: order.companyId || '', orderNumber: order.orderNumber,
+        location: stop?.location || null, companyId: order.companyId || '', guideNumber: savedGuideNumberByCompany.get(order.companyId) || '', orderNumber: order.orderNumber,
         orderDate: order.date || '', orderTotal: order.total, __stopKey: `loaded-${index}` };
     });
     const stops = (saved.stops || []).map(stop => {
@@ -1090,22 +1311,31 @@ async function loadGuide(id) {
     const option = { type: saved.routeType || 'closest', label: saved.routeTypeLabel || 'Ruta guardada', route: stops,
       estimatedDistanceKm: saved.totalDistanceKm, googleMapsRouteLinks: saved.googleMapsRouteLinks, openRouteLink: saved.openRouteLink };
     serverResponse.value = { ...saved, route: stops, routeOptions: [option], savedRoute: { ...saved, routeId: saved._id } };
-    feedback.value = `Editando guia ${saved.loadGuide.number || saved.routeLabel}.`;
+    feedback.value = `Editando ${savedSubGuides.length} guia(s) de ${saved.routeLabel}.`;
     transportRouteId.value = includeTransport.value ? String(saved._id) : '';
   } catch (failure) { errorMessage.value = failure.message; }
   finally { loading.value = false; }
 }
 function newGuide() {
-  if ((editingGuideId.value || paradas.value.length) && !window.confirm('Crear una nueva guia? Los cambios sin guardar de esta pantalla se descartaran.')) return;
+  if ((editingGuideId.value || paradas.value.length) && !window.confirm('Empezar de nuevo? Los cambios sin guardar de esta pantalla se descartaran.')) return false;
   editingGuideId.value = ''; guideUpdatedAt.value = null; serverResponse.value = null;
+  routeMessageImported.value = false;
+  guideNumber.value = ''; companyIdInput.value = defaultCompanyId.value;
+  for (const companyId of Object.keys(guideNumbersByCompany)) delete guideNumbersByCompany[companyId];
   priorityPreviewSequence += 1; priorityPreviewLoading.value = false;
   paradas.value = []; editableRoute.value = []; routeTable.value = [];
   transportRouteId.value = ''; includeTransport.value = false;
   driverId.value = ''; driverName.value = ''; routeComment.value = ''; routeWeight.value = 0;
+  routeMessageInput.value = '';
   paradaInput.value = ''; orderNumberInput.value = ''; orderDateInput.value = getTodayOrderDate(); orderTotalInput.value = null;
   anchorClientId.value = ''; anchorSucursal.value = ''; anchorStopKey.value = '';
   sedePickerVisible.value = false; feedback.value = ''; errorMessage.value = ''; addStopStatus.value = '';
   router.replace({ path: '/routes', query: {} });
+  return true;
+}
+
+function submitRoute() {
+  return makeRoute({ previewOnly: routeMessageImported.value });
 }
 onMounted(() => { if (pageRoute.query.guideId) loadGuide(String(pageRoute.query.guideId)); });
 watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGuideId.value) loadGuide(String(id)); });
@@ -1123,6 +1353,26 @@ watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGui
       </div>
 
       <div class="routes-card routes-controls">
+        <el-radio-group :model-value="creationMode" :disabled="loading || addingStop || sedePickerVisible || priorityPreviewLoading" aria-label="Tipo de creacion" @update:model-value="selectCreationMode">
+          <el-radio-button value="route">Crear ruta</el-radio-button>
+          <el-radio-button value="guide">Crear guia</el-radio-button>
+        </el-radio-group>
+        <section class="route-message-import" aria-labelledby="routeMessageHeading">
+          <h2 id="routeMessageHeading">Pegar mensaje</h2>
+          <label for="routeMessageInput">{{ creatingGuide ? 'Pega aqui el mensaje completo de la ruta o las guias' : 'Pega aqui el mensaje completo de la ruta' }}</label>
+          <textarea id="routeMessageInput" v-model="routeMessageInput" rows="12" :disabled="loading || addingStop || priorityPreviewLoading || sedePickerVisible" placeholder="CREAR RUTA
+Chofer ID:
+Nombre del chofer:
+Peso total (kg):
+Comentario:
+CLIENTES
+ID: J123456789
+ID: J987654321 | Sede: Norte
+Primera parada obligatoria: ninguna" />
+          <el-button type="primary" :loading="loading" :disabled="!routeMessageInput.trim() || addingStop || priorityPreviewLoading || sedePickerVisible" @click="createRouteFromMessage">
+            <i class="mdi mdi-map-marker-path" aria-hidden="true" /> {{ creatingGuide ? 'Cargar guias desde mensaje' : 'Listar clientes desde mensaje' }}
+          </el-button>
+        </section>
         <div class="input-grid input-grid-meta">
           <div class="field-group">
             <label for="driverId">ID del chofer</label>
@@ -1147,6 +1397,10 @@ watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGui
               {{ currentRouteReference }}
             </div>
           </div>
+            <div v-if="creatingGuide" class="field-group">
+              <label for="guideNumber">Numero de guia para la empresa seleccionada</label>
+              <el-input id="guideNumber" v-model="guideNumber" maxlength="80" placeholder="Escribe el numero de guia" :disabled="loading" />
+          </div>
           <div class="field-group">
             <label for="routeType">Tipo de ruta a guardar</label>
             <select id="routeType" v-model="selectedRouteType">
@@ -1161,7 +1415,7 @@ watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGui
           </div>
         </div>
 
-        <DispatchCompanyPicker v-model="companyIdInput" :disabled="addingStop || sedePickerVisible || loading" @catalog-updated="updateCompanyCatalog" />
+        <DispatchCompanyPicker v-if="creatingGuide" v-model="companyIdInput" :disabled="addingStop || sedePickerVisible || loading" @catalog-updated="updateCompanyCatalog" />
         <div class="input-row client-order-row">
           <div class="field-group route-entry-field">
             <label for="clientIdInput">RIF / ID del cliente</label>
@@ -1175,7 +1429,7 @@ watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGui
               @keyup.enter="agregarParada"
             />
           </div>
-          <div class="field-group route-entry-field">
+          <div v-if="creatingGuide" class="field-group route-entry-field">
             <label for="orderNumberInput">Numero de pedido</label>
             <el-input
               id="orderNumberInput"
@@ -1186,7 +1440,7 @@ watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGui
               @keyup.enter="agregarParada"
             />
           </div>
-          <div class="field-group route-entry-field">
+          <div v-if="creatingGuide" class="field-group route-entry-field">
             <label for="orderDateInput">Fecha del pedido</label>
             <el-input
               id="orderDateInput"
@@ -1197,7 +1451,7 @@ watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGui
               @keyup.enter="agregarParada"
             />
           </div>
-          <div class="field-group route-entry-field">
+          <div v-if="creatingGuide" class="field-group route-entry-field">
             <label for="orderTotalInput">Monto del pedido ($)</label>
             <el-input-number
               id="orderTotalInput"
@@ -1243,7 +1497,7 @@ watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGui
         </div>
       </div>
 
-      <section class="route-transport-section">
+      <section v-if="creatingGuide" class="route-transport-section">
         <div class="summary-strip">
           <label><input v-model="includeTransport" type="checkbox" :disabled="loading" /> Datos de transporte del viaje</label>
           <router-link to="/transport-kpis">KPIs de transporte</router-link>
@@ -1253,10 +1507,22 @@ watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGui
 
       <div class="routes-card">
         <p class="table-scroll-hint">La lista mantiene scroll vertical cuando agregas muchos clientes.</p>
-        <div class="table-wrapper">
+        <div v-for="companyGroup in visibleStopGroups" :key="companyGroup.companyId" :class="{ 'company-guide-list': creatingGuide }">
+          <div v-if="creatingGuide" class="company-guide-heading">
+            <label v-if="!companyGroup.companyId">Empresa
+              <el-select model-value="" placeholder="Seleccionar empresa" :disabled="loading" @update:model-value="assignPendingGuideCompany">
+                <el-option v-for="company in companyCatalog" :key="company._id" :label="company.name" :value="company._id" />
+              </el-select>
+            </label>
+            <h3>{{ companyGroup.companyName }} · {{ companyGroup.orders.length }} pedidos · $ {{ formatAmount(companyGroup.totalAmount) }}</h3>
+            <label :for="`guide-number-${companyGroup.companyId}`">Numero de guia
+              <el-input :id="`guide-number-${companyGroup.companyId}`" v-model="guideNumbersByCompany[companyGroup.companyId]" maxlength="80" :disabled="loading" />
+            </label>
+          </div>
+          <div class="table-wrapper">
           <el-table
             ref="paradasTableRef"
-            :data="paradas"
+            :data="companyGroup.orders"
             class="responsive-table"
             :max-height="380"
             :row-class-name="(rowContext) => resolveParadaRowClass(rowContext.row)"
@@ -1296,24 +1562,17 @@ watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGui
               </template>
             </el-table-column>
             <el-table-column prop="name" label="Nombre" width="150" />
-            <el-table-column label="Empresa del pedido" min-width="220">
-              <template #default="scope">
-                <el-select v-model="scope.row.companyId" placeholder="Empresa" :aria-label="`Empresa del pedido ${scope.row.orderNumber || scope.row.parada}`" :disabled="loading">
-                  <el-option v-for="company in companyCatalog" :key="company._id" :label="company.name" :value="company._id" />
-                </el-select>
-              </template>
-            </el-table-column>
-            <el-table-column label="Numero de documento" min-width="190">
+            <el-table-column v-if="creatingGuide" label="Numero de documento" min-width="190">
               <template #default="scope">
                 <el-input v-model="scope.row.orderNumber" placeholder="Numero de documento" :aria-label="`Numero de documento de ${scope.row.parada}`" :disabled="loading" />
               </template>
             </el-table-column>
-            <el-table-column label="Fecha del pedido" min-width="170">
+            <el-table-column v-if="creatingGuide" label="Fecha del pedido" min-width="170">
               <template #default="scope">
                 <el-input v-model="scope.row.orderDate" type="date" :aria-label="`Fecha del pedido de ${scope.row.parada}`" :disabled="loading" />
               </template>
             </el-table-column>
-            <el-table-column label="Monto del pedido ($)" min-width="190">
+            <el-table-column v-if="creatingGuide" label="Monto del pedido ($)" min-width="190">
               <template #default="scope">
                 <el-input-number v-model="scope.row.orderTotal" :min="0" :precision="2" :step="0.01" :controls="false" placeholder="Monto del pedido" :aria-label="`Monto del pedido de ${scope.row.parada}`" :disabled="loading" />
               </template>
@@ -1323,31 +1582,32 @@ watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGui
                 <el-button
                   type="danger"
                   size="small"
-                  @click="eliminarParada(scope.$index)"
-                >Eliminar pedido</el-button>
+                  @click="eliminarParada(paradas.indexOf(scope.row))"
+                >{{ creatingGuide ? 'Eliminar pedido' : 'Eliminar cliente' }}</el-button>
               </template>
             </el-table-column>
           </el-table>
+          </div>
         </div>
 
-        <div class="summary-strip">
+        <div v-if="creatingGuide" class="summary-strip">
           <span><strong>Pedidos:</strong> {{ paradas.length }}</span>
           <span><strong>Total de los pedidos:</strong> $ {{ formatAmount(totalOrderAmount) }}</span>
         </div>
-        <el-button type="success" class="route-submit-button" :loading="loading || priorityPreviewLoading" @click="makeRoute"
-          >{{ editingGuideId ? 'Actualizar guia' : 'Crear y guardar ruta' }}</el-button
+        <el-button type="success" class="route-submit-button" :loading="loading || priorityPreviewLoading" @click="submitRoute"
+          >{{ creatingGuide ? editingGuideId ? 'Actualizar guia' : 'Crear guia' : routeMessageImported ? 'Calcular ruta optima' : 'Crear ruta' }}</el-button
         >
-        <el-button type="primary" :disabled="loading" @click="newGuide"><i class="mdi mdi-plus" aria-hidden="true" /> Nueva guia</el-button>
+        <el-button type="primary" :disabled="loading" @click="newGuide"><i class="mdi mdi-plus" aria-hidden="true" /> {{ creatingGuide ? 'Nueva guia' : 'Nueva ruta' }}</el-button>
         <el-button v-if="serverResponse?.savedRoute?.loadGuide" type="primary" :disabled="loading" @click="downloadLoadGuide(serverResponse.savedRoute.loadGuide, serverResponse.savedRoute)"><i class="mdi mdi-file-download-outline" aria-hidden="true" /> Descargar guia PDF</el-button>
       </div>
 
-      <div v-if="sedePickerVisible" class="routes-card sede-picker-card">
+      <div v-if="sedePickerVisible" ref="sedePickerRef" class="routes-card sede-picker-card">
         <div class="sede-picker-header">
           <div>
             <strong>Cliente cadena: {{ sedePendingNombre }}</strong>
             <p class="share-copy">Este cliente tiene {{ sedeOpciones.length }} sedes. Selecciona la que vas a visitar.</p>
           </div>
-          <button class="copy-button" type="button" @click="sedePickerVisible = false">Cancelar</button>
+          <button class="copy-button" type="button" @click="cancelSedeSelection">Cancelar</button>
         </div>
         <div class="sede-option-grid">
           <button
@@ -2228,6 +2488,62 @@ watch(() => pageRoute.query.guideId, id => { if (id && String(id) !== editingGui
 
 .responsive-table {
   min-width: 560px;
+}
+
+.route-message-import {
+  margin: 1rem 0;
+  padding: 1rem 0;
+  border-top: 1px solid rgba(159, 209, 255, 0.22);
+  border-bottom: 1px solid rgba(159, 209, 255, 0.22);
+}
+
+.route-message-import h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.route-message-import label {
+  display: block;
+  margin-top: 1rem;
+}
+
+.route-message-import textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0.5rem 0 1rem;
+  padding: 0.75rem;
+  resize: vertical;
+  border: 1px solid #a9c1ca;
+  border-radius: 4px;
+  background: #fff;
+  color: #17343d;
+  font: inherit;
+}
+
+.company-guide-list {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(159, 209, 255, 0.22);
+}
+
+.company-guide-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 0.8rem 1.2rem;
+}
+
+.company-guide-heading h3 {
+  margin: 0;
+}
+
+.company-guide-heading label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: min(100%, 240px);
 }
 
 .result-table {

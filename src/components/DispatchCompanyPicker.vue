@@ -58,7 +58,7 @@ onMounted(load);
 <template>
   <section class="company-picker">
     <div class="company-selector">
-      <label for="orderCompany">Empresa del pedido</label>
+      <label for="orderCompany">Empresa de la guia</label>
       <div class="company-controls">
         <select id="orderCompany" v-model="selected" required :disabled="disabled || busy"><option value="">Seleccionar empresa</option><option v-for="company in companies" :key="company._id" :value="company._id">{{ company.name }}{{ company._id === defaultCompanyId ? ' (predeterminada)' : '' }}</option></select>
         <button type="button" title="Agregar empresa" aria-label="Agregar empresa" :disabled="disabled || busy" @click="creating = !creating"><i class="mdi mdi-plus" aria-hidden="true" /></button>

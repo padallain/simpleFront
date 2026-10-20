@@ -16,6 +16,7 @@ const groups = ref([]);
 const tab = ref('trips');
 const busy = ref(false);
 const error = ref('');
+const navigationFeedback = ref('');
 const editingRouteId = ref(String(route.query.routeId || ''));
 const query = () => Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== ''));
 const complete = computed(() => records.value.filter(record => record.metrics.cost !== null && record.metrics.netSales !== null));
@@ -30,6 +31,31 @@ async function load() {
     records.value = daily.records; groups.value = summary.groups;
   } catch (failure) { error.value = failure.message; }
   finally { busy.value = false; }
+}
+async function openGroupTrips(group) {
+  const from = group.period === 'month'
+    ? `${group.period}-01`
+    : group.period;
+  let to = from;
+  if (filters.period === 'week') {
+    const end = new Date(`${from}T12:00:00Z`);
+    end.setUTCDate(end.getUTCDate() + 6);
+    to = end.toISOString().slice(0, 10);
+  } else if (filters.period === 'month') {
+    const end = new Date(`${from}T12:00:00Z`);
+    end.setUTCMonth(end.getUTCMonth() + 1, 0);
+    to = end.toISOString().slice(0, 10);
+  }
+  filters.from = from;
+  filters.to = to;
+  filters.status = 'all';
+  for (const field of ['vehicleId', 'driverId', 'zone', 'routeCode', 'carrierId', 'freightType']) filters[field] = '';
+  if (group.group !== 'Sin dato' && ['vehicleId', 'driverId', 'zone', 'routeCode', 'carrierId', 'freightType'].includes(filters.groupBy)) {
+    filters[filters.groupBy] = group.group;
+  }
+  tab.value = 'trips';
+  navigationFeedback.value = `Viajes del grupo ${group.group}, ${from} a ${to}. Los borradores tambien aparecen para completar sus parametros.`;
+  await load();
 }
 async function download() {
   busy.value = true; error.value = '';
@@ -48,6 +74,7 @@ onMounted(async () => {
     <header class="page-heading"><div><p>PAD Distribucion</p><h1>KPIs de transporte</h1></div><router-link to="/routes"><i class="mdi mdi-map-marker-path" aria-hidden="true" /> Crear ruta</router-link></header>
     <nav class="view-tabs" aria-label="Vistas de transporte"><button v-for="[key, title] in [['trips','Viajes'],['summary','Resumen'],['comparison','Propio vs externo'],['config','Parametros']]" :key="key" :class="{ active: tab === key }" :aria-pressed="tab === key" @click="tab = key">{{ title }}</button></nav>
     <p v-if="error" role="alert" class="error-message">{{ error }}</p>
+    <p v-if="navigationFeedback" role="status" class="navigation-feedback">{{ navigationFeedback }}</p>
     <TransportConfigurationEditor v-if="tab === 'config'" @saved="configuration = $event" />
     <template v-else>
       <form class="filter-grid" @submit.prevent="load">
@@ -64,7 +91,7 @@ onMounted(async () => {
       <dl class="overview"><div><dt>Viajes</dt><dd>{{ records.length }}</dd></div><div><dt>Costo</dt><dd>{{ usd(totalCost) }}</dd></div><div><dt>Venta entregada</dt><dd>{{ usd(totalSales) }}</dd></div><div><dt>Flete ponderado</dt><dd>{{ percent(complete.length === records.length && totalSales > 0 ? totalCost / totalSales : null) }}</dd></div><div><dt>Sobrecosto</dt><dd>{{ usd(excess) }}</dd></div><div><dt>Incompletos</dt><dd>{{ records.length - complete.length }}</dd></div></dl>
       <div class="report-table">
         <table v-if="tab === 'trips'"><thead><tr><th>Fecha / guia</th><th>Vehiculo / chofer</th><th>Ruta / zona</th><th>Tipo / transportista</th><th>Venta neta</th><th>Monto viaje</th><th>Flete / venta</th><th>Ganancia estimada</th><th>Sobrecosto</th><th>Estado</th><th></th></tr></thead><tbody><tr v-for="record in records" :key="record.trip._id"><td>{{ record.trip.date }}<small>{{ record.trip.guideNumber }}</small></td><td>{{ record.trip.vehicleName }}<small>{{ record.trip.driverName || record.trip.driverId }}</small></td><td>{{ record.trip.routeCode }}<small>{{ record.trip.zone }}</small></td><td>{{ record.trip.freightType }}<small>{{ record.trip.carrierName }}</small></td><td>{{ usd(record.metrics.netSales) }}</td><td>{{ usd(record.metrics.cost) }}</td><td :class="`semaphore-${record.metrics.semaphore}`">{{ percent(record.metrics.freightRatio) }}<small>{{ record.metrics.semaphore }}</small></td><td>{{ usd(record.metrics.estimatedProfit) }}</td><td>{{ usd(record.metrics.excess) }}</td><td>{{ record.trip.status === 'closed' ? 'Cerrado' : 'Borrador' }}</td><td><button title="Detalle del viaje" aria-label="Detalle del viaje" @click="editingRouteId = record.trip.routeId"><i class="mdi mdi-pencil-outline" aria-hidden="true" /></button></td></tr></tbody></table>
-        <table v-else-if="tab === 'summary'"><thead><tr><th>Periodo</th><th>Grupo</th><th>Viajes</th><th>Costo total</th><th>Venta entregada</th><th>Flete ponderado</th><th>Sobrecosto</th><th>Viajes rojos</th><th>Incompletos</th><th>Costo/bulto</th><th>Costo/kg</th><th>Jornada h</th></tr></thead><tbody><tr v-for="group in groups" :key="`${group.period}-${group.group}`"><td>{{ group.period }}</td><td>{{ group.group }}</td><td>{{ group.trips }}</td><td>{{ usd(group.costTotal) }}</td><td>{{ usd(group.netSalesTotal) }}</td><td>{{ percent(group.weightedRatio) }}</td><td>{{ usd(group.excessTotal) }}</td><td>{{ percent(group.redTripRatio) }}</td><td>{{ group.incompleteTrips }}</td><td>{{ usd(group.averages.costPerDeliveredPackage) }}</td><td>{{ usd(group.averages.costPerDeliveredKg) }}</td><td>{{ group.averages.hours?.toFixed(2) ?? 'Sin dato' }}</td></tr></tbody></table>
+        <table v-else-if="tab === 'summary'"><thead><tr><th>Periodo</th><th>Grupo</th><th>Viajes</th><th>Costo total</th><th>Venta entregada</th><th>Flete ponderado</th><th>Sobrecosto</th><th>Viajes rojos</th><th>Incompletos</th><th>Costo/bulto</th><th>Costo/kg</th><th>Jornada h</th><th></th></tr></thead><tbody><tr v-for="group in groups" :key="`${group.period}-${group.group}`"><td>{{ group.period }}</td><td>{{ group.group }}</td><td>{{ group.trips }}</td><td>{{ usd(group.costTotal) }}</td><td>{{ usd(group.netSalesTotal) }}</td><td>{{ percent(group.weightedRatio) }}</td><td>{{ usd(group.excessTotal) }}</td><td>{{ percent(group.redTripRatio) }}</td><td>{{ group.incompleteTrips }}</td><td>{{ usd(group.averages.costPerDeliveredPackage) }}</td><td>{{ usd(group.averages.costPerDeliveredKg) }}</td><td>{{ group.averages.hours?.toFixed(2) ?? 'Sin dato' }}</td><td><button type="button" :disabled="busy" :aria-label="`Ver viajes de ${group.group}`" @click="openGroupTrips(group)"><i class="mdi mdi-open-in-new" aria-hidden="true" /> Ver viajes</button></td></tr></tbody></table>
         <table v-else><thead><tr><th>Guia / zona</th><th>Transportista</th><th>Costo externo</th><th>Costo propio</th><th>Ahorro con propio</th><th>Preferencia economica</th><th>Equilibrio</th><th>Base</th><th>Minimo supera propio</th></tr></thead><tbody><tr v-for="record in records.filter(item => item.comparison)" :key="record.trip._id"><td>{{ record.trip.guideNumber }}<small>{{ record.trip.zone }}</small></td><td>{{ record.trip.carrierName }}</td><td>{{ usd(record.comparison.externalCost) }}</td><td>{{ usd(record.comparison.internalCost) }}</td><td>{{ usd(record.comparison.saving) }}</td><td>{{ record.comparison.preferred }}</td><td>{{ usd(record.comparison.breakEvenSales) }}</td><td>{{ record.comparison.breakEvenBase }}</td><td>{{ record.comparison.minimumAlwaysHigher ? 'Si' : 'No' }}</td></tr></tbody></table>
       </div>
       <p v-if="!busy && !records.length" class="empty-state">No hay viajes en este periodo.</p>
@@ -91,5 +118,6 @@ th, td { text-align: left; padding: 11px 10px; border-bottom: 1px solid #37535f;
 small { display: block; font-size: 11px; color: #b2c8d1; margin-top: 5px; overflow-wrap: anywhere; }
 .semaphore-rojo { color: #ffb6bb; background: #4c2631; } .semaphore-amarillo { color: #ffe09b; background: #433c25; } .semaphore-verde { color: #9ee3bd; background: #203c33; }
 .error-message { color: #ffb6bb; } .empty-state { padding: 24px 0; color: #bed0d8; } .trip-detail { margin-top: 28px; }
+.navigation-feedback { color: #9ee3bd; margin: 12px 0; }
 @media (max-width: 600px) { .transport-page { padding: 16px 12px; } h1 { font-size: 24px; } }
 </style>

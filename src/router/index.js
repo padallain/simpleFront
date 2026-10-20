@@ -14,7 +14,6 @@ const DailyCheckHistory = () => import("../views/DailyCheckHistory.vue");
 const DriverRoute = () => import("../views/DriverRoute.vue");
 const ClientCleanup = () => import("../views/ClientCleanup.vue");
 const ReportClientLocation = () => import("../views/ReportClientLocation.vue");
-const ClientLocationReports = () => import("../views/ClientLocationReports.vue");
 const DispatchIssueReports = () => import("../views/DispatchIssueReports.vue");
 const RouteDispatchIssueSummary = () => import("../views/RouteDispatchIssueSummary.vue");
 const RouteManagement = () => import("../views/RouteManagement.vue");
@@ -40,6 +39,7 @@ const DRIVER_ALLOWED_PATHS = new Set([
   "/daily-check",
   "/fuel-report",
   "/driver-route",
+  "/fix-client-address",
 ]);
 const WAREHOUSE_ALLOWED_PATHS = new Set([
   "/warehouse-picking",
@@ -115,12 +115,13 @@ const routes = [
   { path: "/warehouse-picking", component: WarehousePicking, meta: { allowedRoles: [ADMIN_ROLE, WAREHOUSE_ROLE] } },
   { path: "/clientes-cadena", component: ClientesCadena, meta: { requiresAdmin: true } },
   { path: "/vehicle-maintenance-history", component: VehicleMaintenanceHistory, meta: { requiresAdmin: true } },
-  { path: "/report-client-location", component: ReportClientLocation, meta: { requiresAdmin: true } },
+  { path: "/fix-client-address", component: ReportClientLocation, meta: { allowedRoles: [ADMIN_ROLE, DRIVER_ROLE] } },
+  { path: "/report-client-location", redirect: "/fix-client-address" },
   { path: "/route-management", component: RouteManagement, meta: { requiresAdmin: true } },
   { path: "/admin-users", component: AdminUsers, meta: { requiresAdmin: true } },
   { path: "/notifications", component: Notifications, meta: { requiresAdmin: true } },
-  { path: "/client-location-reports", component: ClientLocationReports, meta: { requiresAdmin: true } },
-  { path: "/internal/dev/client-location-reports", component: ClientLocationReports, meta: { requiresAdmin: true } },
+  { path: "/client-location-reports", redirect: "/fix-client-address" },
+  { path: "/internal/dev/client-location-reports", redirect: "/fix-client-address" },
   { path: "/internal/dev/dispatch-issue-reports", component: DispatchIssueReports, meta: { requiresAdmin: true } },
   { path: "/internal/dev/client-cleanup", component: ClientCleanup, meta: { requiresAdmin: true } },
 ];

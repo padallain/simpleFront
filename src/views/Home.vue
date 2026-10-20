@@ -990,7 +990,7 @@ async function copyMapsLink() {
 }
 
 const goToClientLocationReports = () => {
-  router.push('/client-location-reports');
+  router.push('/fix-client-address');
 };
 
 const goToDailyCheck = () => {
@@ -1352,6 +1352,12 @@ const goToAdminUsers = () => {
           <span class="mod-chevron">›</span>
         </button>
 
+        <button v-if="isAdminUser || isDriverUser" class="module-card" type="button" @click="goToClientLocationReports">
+          <span class="mod-icon" style="--c:#2dd4bf;--b:rgba(45,212,191,0.12)"><i class="mdi mdi-map-marker-check-outline" aria-hidden="true" /></span>
+          <span class="mod-text"><strong>Arreglar direccion</strong><em>Solicitudes y aprobacion</em></span>
+          <span class="mod-chevron" aria-hidden="true"><i class="mdi mdi-chevron-right" /></span>
+        </button>
+
         <template v-if="isAdminUser || isWarehouseUser">
         <button v-if="isWarehouseUser || isAdminUser" class="module-card module-card-wide" type="button" @click="goToWarehousePicking">
           <span class="mod-icon" style="--c:#2dd4bf;--b:rgba(45,212,191,0.12)">
@@ -1380,19 +1386,6 @@ const goToAdminUsers = () => {
         </button>
 
         <template v-if="isAdminUser">
-        <button class="module-card" type="button" @click="goToClientLocationReports">
-          <span class="mod-icon" style="--c:#f59e0b;--b:rgba(245,158,11,0.12)">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
-          </span>
-          <span class="mod-text">
-            <strong>Denuncias</strong>
-            <em>Reportes públicos</em>
-          </span>
-          <span class="mod-chevron">›</span>
-        </button>
-
         <button class="module-card" type="button" @click="goToTransportKpis">
           <span class="mod-icon" style="--c:#34d399;--b:rgba(52,211,153,0.12)"><i class="mdi mdi-chart-box-outline" aria-hidden="true" /></span>
           <span class="mod-text"><strong>KPIs de transporte</strong><em>Costos y rentabilidad</em></span>
