@@ -800,6 +800,7 @@ async function agregarSede(sede) {
     name: sede.sucursal ? `${sede.nombre} — ${sede.sucursal}` : sede.nombre,
     location: sede.location,
     sucursal: sede.sucursal || "",
+    withoutLocation: Boolean(sede.withoutLocation),
   });
   sedePickerVisible.value = false;
   sedeOpciones.value = [];
@@ -807,6 +808,11 @@ async function agregarSede(sede) {
   sedePendingNombre.value = "";
   paradaInput.value = "";
   focusParadaInput();
+}
+
+function agregarSinUbicacion() {
+  return agregarSede({ id: sedePendingId.value, nombre: sedePendingNombre.value,
+    sucursal: '', location: null, withoutLocation: true });
 }
 
 function cancelSedeSelection() {
@@ -952,17 +958,17 @@ async function createRouteFromMessage() {
         selected = await selectImportBranch(requested, branches, client.nombre);
         if (!selected) throw new Error('Importacion cancelada. La lista anterior no se modifico.');
       }
-      if (selected && [selected.location?.latitude, selected.location?.longitude].some(value => value == null || value === '' || !Number.isFinite(Number(value)))) {
+      if (selected && !selected.withoutLocation && [selected.location?.latitude, selected.location?.longitude].some(value => value == null || value === '' || !Number.isFinite(Number(value)))) {
         throw new Error(`El cliente ${requested.clientId}${selected.sucursal ? ` (${selected.sucursal})` : ''} no tiene coordenadas validas.`);
       }
       stopKeySequence += 1;
       const stop = { parada: requested.clientId, sucursal: selected ? selected.sucursal || '' : requested.sucursal || '',
         name: !selected ? 'No encontrado' : selected.sucursal ? `${selected.nombre || requested.clientId} - ${selected.sucursal}` : selected.nombre || requested.clientId,
-        location: selected?.location || null, __stopKey: `import-${stopKeySequence}` };
+        location: selected?.location || null, notFound: !selected, withoutLocation: Boolean(selected?.withoutLocation), __stopKey: `import-${stopKeySequence}` };
       importedStops.push(stop);
       if (!selected) missingClients.push(`${stop.parada}${stop.sucursal ? ` (${stop.sucursal})` : ''}`);
       resolvedStops.set(requestedKey(requested), stop);
-      if (requested === parsed.priority && selected) priorityStop = stop;
+      if (requested === parsed.priority && selected && !selected.withoutLocation) priorityStop = stop;
     }
     let importedRows = importedStops;
     if (creatingGuide.value) {
@@ -1127,8 +1133,11 @@ async function copyNearbyGroup(group) {
 
 async function makeRoute({ previewOnly = false } = {}) {
   if (loading.value || addingStop.value || priorityPreviewLoading.value) return;
-  if (!paradas.value.length) {
-    errorMessage.value = "Agrega al menos un cliente antes de generar la ruta.";
+  const routeStops = paradas.value.filter(stop => !stop.notFound);
+  if (!routeStops.length) {
+    errorMessage.value = paradas.value.length
+      ? 'No hay clientes encontrados para incluir en la ruta.'
+      : 'Agrega al menos un cliente antes de generar la ruta.';
     return;
   }
 
@@ -1136,7 +1145,7 @@ async function makeRoute({ previewOnly = false } = {}) {
     errorMessage.value = "Ingresa el ID del chofer para guardar la ruta y sus pedidos.";
     return;
   }
-  const incompleteOrder = paradas.value.find((stop) => !String(stop.orderNumber || '').trim()
+  const incompleteOrder = routeStops.find((stop) => !String(stop.orderNumber || '').trim()
     || !stop.orderDate
     || stop.orderTotal == null || stop.orderTotal === ''
     || !Number.isFinite(Number(stop.orderTotal)) || Number(stop.orderTotal) < 0);
@@ -1162,7 +1171,7 @@ async function makeRoute({ previewOnly = false } = {}) {
   shareFeedback.value = "";
 
   try {
-    const requestedStops = paradas.value
+    const requestedStops = routeStops
       .map((stop) => {
         const clientId = String(stop?.id || stop?.parada || "").trim();
 
@@ -1173,6 +1182,7 @@ async function makeRoute({ previewOnly = false } = {}) {
         return {
           clientId,
           ...(stop?.sucursal ? { sucursal: String(stop.sucursal).trim() } : {}),
+          ...(stop?.withoutLocation ? { withoutLocation: true } : {}),
         };
       })
       .filter(Boolean);
@@ -1199,15 +1209,15 @@ async function makeRoute({ previewOnly = false } = {}) {
         routeType: selectedRouteType.value,
         routeWeight: totalWeight.value,
         loadGuide: creatingGuide.value ? {
-          subGuides: companyGroups.value.map(group => ({
+          subGuides: companyGroups.value.filter(group => group.orders.some(stop => !stop.notFound)).map(group => ({
             companyId: group.companyId,
             number: String(guideNumbersByCompany[group.companyId] || '').trim(),
-            orders: group.orders.map(stop => ({
+            orders: group.orders.filter(stop => !stop.notFound).map(stop => ({
               clientId: String(stop.parada).trim(), sucursal: String(stop.sucursal || '').trim(),
               orderNumber: String(stop.orderNumber).trim(), date: stop.orderDate, total: Number(stop.orderTotal),
             })),
           })),
-          orders: paradas.value.map((stop) => ({
+          orders: routeStops.map((stop) => ({
             companyId: stop.companyId,
             clientId: String(stop.parada).trim(),
             sucursal: String(stop.sucursal || '').trim(),
@@ -1254,10 +1264,11 @@ async function makeRoute({ previewOnly = false } = {}) {
     }
     selectedRouteType.value = result?.routeType || selectedRouteType.value;
     const savedGuideNumbers = result?.savedRoute?.loadGuide?.subGuides?.map(guide => guide.number) || [];
+    const omittedClientCount = paradas.value.filter(stop => stop.notFound).length;
     feedback.value = !creatingGuide.value
-      ? result?.savedRoute?.routeId ? `Ruta guardada para el chofer ${result.savedRoute.driverId}.` : 'Ruta optima calculada.'
+      ? `${omittedClientCount ? `${omittedClientCount} cliente(s) no encontrado(s) se omitieron. ` : ''}${result?.savedRoute?.routeId ? `Ruta guardada para el chofer ${result.savedRoute.driverId}.` : 'Ruta optima calculada.'}`
       : result?.savedRoute?.routeId
-      ? `Guias ${savedGuideNumbers.join(', ') || result.savedRoute.loadGuide?.number || result.savedRoute.routeId} ${result.updated ? 'actualizadas' : 'creadas'} para el chofer ${result.savedRoute.driverId}.`
+        ? `Guias ${savedGuideNumbers.join(', ') || result.savedRoute.loadGuide?.number || result.savedRoute.routeId} ${result.updated ? 'actualizadas' : 'creadas'} para el chofer ${result.savedRoute.driverId}.${omittedClientCount ? ` Se omitieron ${omittedClientCount} cliente(s) no encontrado(s).` : ''}`
       : "Rutas calculadas correctamente. Selecciona un tipo y agrega un ID de chofer para dejar la opcion guardada.";
 
     if (creatingGuide.value && includeTransport.value && result?.savedRoute?.routeId) {
@@ -1620,6 +1631,9 @@ Primera parada obligatoria: ninguna" />
             <strong>{{ sede.sucursal || 'Sede principal' }}</strong>
             <span>{{ sede.location?.latitude }}, {{ sede.location?.longitude }}</span>
             <small>{{ sede.googleMapsLink ? 'Ver en mapa →' : '' }}</small>
+          </button>
+          <button type="button" class="sede-option-btn" @click="agregarSinUbicacion">
+            <strong>Sin ubicacion</strong>
           </button>
         </div>
       </div>
