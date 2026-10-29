@@ -9,6 +9,7 @@ const clients = ref([]);
 const selectedClientKey = ref('');
 const selectedClient = computed(() => clients.value.find(client => String(client._id) === selectedClientKey.value) || null);
 const details = ref('');
+const proposedSucursal = ref('');
 const latitude = ref('');
 const longitude = ref('');
 const accuracyMeters = ref(null);
@@ -55,7 +56,12 @@ watch(clientId, () => {
   lookupSequence += 1; clients.value = []; selectedClientKey.value = ''; selectedReviewId.value = '';
   latitude.value = ''; longitude.value = ''; accuracyMeters.value = null;
 });
-watch(selectedClientKey, () => { latitude.value = ''; longitude.value = ''; accuracyMeters.value = null; });
+watch(selectedClientKey, () => {
+  proposedSucursal.value = selectedClient.value?.sucursal || '';
+  latitude.value = selectedClient.value?.location?.latitude ?? '';
+  longitude.value = selectedClient.value?.location?.longitude ?? '';
+  accuracyMeters.value = null;
+});
 watch([latitude, longitude], () => { accuracyMeters.value = null; });
 
 async function lookupClient() {
@@ -104,6 +110,7 @@ async function submitReport() {
   try {
     const result = await request('/clientLocationReports', { method: 'POST', body: JSON.stringify({
       clientId: selectedClient.value.id, sucursal: selectedClient.value.sucursal || '', details: details.value,
+      proposedSucursal: proposedSucursal.value.trim(),
       proposedLocation: proposedLocation.value, accuracyMeters: accuracyMeters.value,
     }) });
     feedback.value = `${result.message} Folio: ${result.reportId}.`;
@@ -115,7 +122,7 @@ async function submitReport() {
 async function review(report, decision) {
   const note = reviewNotes.value[report._id] || '';
   if (decision === 'reject' && !note.trim()) { errorMessage.value = 'Escribe el motivo antes de rechazar la solicitud.'; return; }
-  if (decision === 'approve' && !window.confirm(`Actualizar la ubicacion de ${report.clientSnapshot?.nombre || report.clientId}, sede ${report.sucursal || 'principal'}, al punto propuesto?`)) return;
+  if (decision === 'approve' && !window.confirm(`Actualizar ${report.clientSnapshot?.nombre || report.clientId}, sede ${report.sucursal || 'Principal'}, al punto propuesto${report.proposedSucursal !== undefined ? ` y a la sede ${report.proposedSucursal || 'Principal'}` : ''}?`)) return;
   reviewingId.value = report._id; errorMessage.value = ''; feedback.value = '';
   try {
     const result = await request(`/clientLocationReports/${report._id}/${decision}`, { method: 'POST', body: JSON.stringify({ reviewNote: note }) });
@@ -139,15 +146,21 @@ onMounted(loadReports);
       <template v-if="selectedClient">
         <div class="address-current"><strong>{{ selectedClient.nombre }}</strong><span>{{ selectedClient.sucursal || 'Sede principal' }}</span><a :href="mapsLink(selectedClient.location)" target="_blank" rel="noreferrer">Ver punto registrado</a><span>{{ selectedClient.location?.latitude }}, {{ selectedClient.location?.longitude }}</span></div>
         <form ref="proposalForm" @submit.prevent="submitReport"><fieldset :disabled="submitLoading || gpsLoading">
+          <label>Nombre de sede propuesto<input v-model="proposedSucursal" maxlength="120" placeholder="Principal" /></label>
           <div class="address-fields"><label>Latitud correcta<input v-model="latitude" type="number" min="-90" max="90" step="any" required /></label><label>Longitud correcta<input v-model="longitude" type="number" min="-180" max="180" step="any" required /></label>
             <label class="address-wide">Direccion correcta / referencia y motivo<textarea v-model="details" rows="3" maxlength="2000" required /></label></div>
           <div class="address-actions"><button type="button" @click="captureGps"><i class="mdi mdi-crosshairs-gps" aria-hidden="true" /> {{ gpsLoading ? 'Obteniendo GPS...' : 'Usar mi ubicacion GPS' }}</button><a v-if="proposedLocation" :href="mapsLink(proposedLocation)" target="_blank" rel="noreferrer">Ver punto propuesto</a><span v-if="accuracyMeters != null">Precision GPS: {{ Math.round(accuracyMeters) }} m</span><button type="submit"><i class="mdi mdi-send-outline" aria-hidden="true" /> {{ submitLoading ? 'Enviando...' : 'Solicitar arreglo' }}</button></div>
         </fieldset></form>
       </template>
     </section>
+    <section v-if="selectedReview && selectedReview.proposedSucursal !== undefined" class="address-current">
+      <strong>{{ selectedReview.clientSnapshot?.nombre || selectedReview.clientId }}</strong>
+      <span>Sede actual: {{ selectedReview.sucursal || 'Principal' }}</span>
+      <span>Sede propuesta: {{ selectedReview.proposedSucursal || 'Principal' }}</span>
+    </section>
     <section v-if="mapStops.length" ref="addressMapRef" class="address-map"><RouteOsmMap title="Punto registrado y propuesto" :stops="mapStops" :origin="mapOrigin" :return-to-origin="false" :canvas-min-height="360" /></section>
     <section class="address-history"><div class="address-history-heading"><h2>{{ isAdmin ? 'Solicitudes para revision' : 'Mis solicitudes' }}</h2><div class="address-actions"><label>Estado<select v-model="statusFilter" @change="loadReports"><option value="pending">Pendientes</option><option value="approved">Aprobadas</option><option value="rejected">Rechazadas</option><option v-if="isAdmin" value="legacy">Reportes anteriores</option><option value="all">Todas</option></select></label><button type="button" :disabled="reportsLoading" @click="loadReports"><i class="mdi mdi-refresh" aria-hidden="true" /> Actualizar</button></div></div>
-      <div class="address-table"><table><thead><tr><th>Cliente / sede</th><th>Chofer / fecha</th><th>Punto registrado al solicitar</th><th>Punto propuesto</th><th>Motivo</th><th>Estado / revision</th><th></th></tr></thead><tbody><tr v-for="report in reports" :key="report._id"><td>{{ report.clientSnapshot?.nombre || report.clientId }}<small>{{ report.clientId }} · {{ report.sucursal || report.clientSnapshot?.sucursal || 'Principal' }}</small></td><td>{{ report.reporterName }}<small>{{ formatDate(report.createdAt) }}</small></td><td><a v-if="mapsLink(report.clientSnapshot?.location)" :href="mapsLink(report.clientSnapshot.location)" target="_blank" rel="noreferrer">{{ report.clientSnapshot.location.latitude }}, {{ report.clientSnapshot.location.longitude }}</a><small v-if="report.locationChanged">El punto cambio desde esta solicitud.<a v-if="mapsLink(report.currentLocation)" :href="mapsLink(report.currentLocation)" target="_blank" rel="noreferrer"> Ver ubicacion vigente</a></small></td><td><a v-if="mapsLink(report.proposedLocation)" :href="mapsLink(report.proposedLocation)" target="_blank" rel="noreferrer">{{ report.proposedLocation.latitude }}, {{ report.proposedLocation.longitude }}</a><small v-else>Sin propuesta</small></td><td class="address-details">{{ report.details }}</td><td :class="`address-status-${report.status}`">{{ statusLabel(report.status) }}<small v-if="report.reviewedBy?.name">{{ report.reviewedBy.name }} · {{ formatDate(report.reviewedAt) }}</small><small>{{ report.reviewNote }}</small></td><td><button v-if="report.proposedLocation" type="button" title="Comparar puntos en mapa" aria-label="Comparar puntos en mapa" @click="showReviewMap(report)"><i class="mdi mdi-map-marker-outline" aria-hidden="true" /></button><div v-if="isAdmin && report.canReview" class="address-review-actions"><label>Observacion / motivo de rechazo<input v-model="reviewNotes[report._id]" maxlength="2000" :disabled="!!reviewingId" /></label><button type="button" :disabled="!!reviewingId || report.locationChanged" @click="review(report, 'approve')"><i class="mdi mdi-check" aria-hidden="true" /> Aprobar y actualizar</button><button type="button" :disabled="!!reviewingId" @click="review(report, 'reject')"><i class="mdi mdi-close" aria-hidden="true" /> Rechazar</button></div></td></tr></tbody></table></div>
+      <div class="address-table"><table><thead><tr><th>Cliente / sede</th><th>Chofer / fecha</th><th>Punto registrado al solicitar</th><th>Punto propuesto</th><th>Motivo</th><th>Estado / revision</th><th></th></tr></thead><tbody><tr v-for="report in reports" :key="report._id"><td>{{ report.clientSnapshot?.nombre || report.clientId }}<small>{{ report.clientId }} · {{ report.sucursal || report.clientSnapshot?.sucursal || 'Principal' }}</small><small v-if="report.proposedSucursal !== undefined">Sede propuesta: {{ report.proposedSucursal || 'Principal' }}</small></td><td>{{ report.reporterName }}<small>{{ formatDate(report.createdAt) }}</small></td><td><a v-if="mapsLink(report.clientSnapshot?.location)" :href="mapsLink(report.clientSnapshot.location)" target="_blank" rel="noreferrer">{{ report.clientSnapshot.location.latitude }}, {{ report.clientSnapshot.location.longitude }}</a><small v-if="report.locationChanged">El punto cambio desde esta solicitud.<a v-if="mapsLink(report.currentLocation)" :href="mapsLink(report.currentLocation)" target="_blank" rel="noreferrer"> Ver ubicacion vigente</a></small></td><td><a v-if="mapsLink(report.proposedLocation)" :href="mapsLink(report.proposedLocation)" target="_blank" rel="noreferrer">{{ report.proposedLocation.latitude }}, {{ report.proposedLocation.longitude }}</a><small v-else>Sin propuesta</small></td><td class="address-details">{{ report.details }}</td><td :class="`address-status-${report.status}`">{{ statusLabel(report.status) }}<small v-if="report.reviewedBy?.name">{{ report.reviewedBy.name }} · {{ formatDate(report.reviewedAt) }}</small><small>{{ report.reviewNote }}</small></td><td><button v-if="report.proposedLocation" type="button" title="Comparar puntos en mapa" aria-label="Comparar puntos en mapa" @click="showReviewMap(report)"><i class="mdi mdi-map-marker-outline" aria-hidden="true" /></button><div v-if="isAdmin && report.canReview" class="address-review-actions"><label>Observacion / motivo de rechazo<input v-model="reviewNotes[report._id]" maxlength="2000" :disabled="!!reviewingId" /></label><button type="button" :disabled="!!reviewingId || report.locationChanged" @click="review(report, 'approve')"><i class="mdi mdi-check" aria-hidden="true" /> Aprobar y actualizar</button><button type="button" :disabled="!!reviewingId" @click="review(report, 'reject')"><i class="mdi mdi-close" aria-hidden="true" /> Rechazar</button></div></td></tr></tbody></table></div>
       <p v-if="!reportsLoading && !reports.length">No hay solicitudes para este estado.</p><p v-if="reports.length === 500">Se muestran las 500 solicitudes mas recientes.</p>
     </section>
   </main>
