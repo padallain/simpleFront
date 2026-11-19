@@ -12,8 +12,10 @@ const routeAdminError = ref("");
 const editingRouteId = ref("");
 const savingRouteId = ref("");
 const deletingRouteId = ref("");
-const completingRouteId = ref("");
-const completingAllRoutes = ref(false);
+const completingSelectedRoutes = ref(false);
+const selectedRouteIds = ref([]);
+const companyFilter = ref("");
+const guideNumberFilter = ref("");
 const editRouteForm = reactive({
   driverId: "",
   driverName: "",
@@ -23,6 +25,56 @@ const editRouteForm = reactive({
 });
 
 const canManageRoutes = computed(() => adminKey.value.trim().length > 0);
+const filteredRoutes = computed(() => {
+  const companyQuery = companyFilter.value.trim().toLocaleLowerCase();
+  const guideNumberQuery = guideNumberFilter.value.trim().toLocaleLowerCase();
+
+  return savedRoutes.value.filter((route) => {
+    const loadGuide = route?.loadGuide;
+    const guides = loadGuide?.subGuides?.length ? loadGuide.subGuides : loadGuide ? [loadGuide] : [];
+    const matchesCompany = !companyQuery || guides.some((guide) => {
+      const companyNames = [guide.companyName, ...(guide.orders || []).flatMap((order) => [order.companyName, order.company])]
+        .filter(Boolean)
+        .join(" ")
+        .toLocaleLowerCase();
+      return companyNames.includes(companyQuery);
+    });
+    const matchesGuideNumber = !guideNumberQuery || guides.some((guide) =>
+      String(guide.number || "").toLocaleLowerCase().includes(guideNumberQuery));
+
+    return matchesCompany && matchesGuideNumber;
+  });
+});
+const selectableRouteIds = computed(() => filteredRoutes.value
+  .filter((route) => String(route?.status || "").trim().toLowerCase() !== "completed")
+  .map((route) => String(route?._id)));
+const allPendingRoutesSelected = computed(() => selectableRouteIds.value.length > 0
+  && selectableRouteIds.value.every((routeId) => selectedRouteIds.value.includes(routeId)));
+const selectedRoutesCount = computed(() => savedRoutes.value.filter((route) =>
+  selectedRouteIds.value.includes(String(route?._id))
+  && String(route?.status || "").trim().toLowerCase() !== "completed",
+).length);
+
+function toggleSelectAllRoutes() {
+  const visibleRouteIds = selectableRouteIds.value;
+  selectedRouteIds.value = allPendingRoutesSelected.value
+    ? selectedRouteIds.value.filter((routeId) => !visibleRouteIds.includes(routeId))
+    : [...new Set([...selectedRouteIds.value, ...visibleRouteIds])];
+}
+
+function getGuideNumbers(route) {
+  const loadGuide = route?.loadGuide;
+  const guides = loadGuide?.subGuides?.length ? loadGuide.subGuides : loadGuide ? [loadGuide] : [];
+  const labels = guides
+    .map((guide) => {
+      const number = String(guide?.number || "").trim();
+      if (!number) return "";
+      return guide.companyName ? `${guide.companyName}: ${number}` : number;
+    })
+    .filter(Boolean);
+
+  return labels.length ? labels.join(" · ") : "Sin numero de guia";
+}
 
 function downloadGuide(route) {
   try {
@@ -71,6 +123,7 @@ async function loadSavedRoutes() {
     }
 
     savedRoutes.value = Array.isArray(result?.routes) ? result.routes : [];
+    selectedRouteIds.value = [];
     routeAdminFeedback.value = savedRoutes.value.length
       ? `Se cargaron ${savedRoutes.value.length} rutas guardadas.`
       : "No hay rutas guardadas por ahora.";
@@ -160,100 +213,35 @@ async function saveRoute(route) {
   }
 }
 
-async function completeRoute(route) {
-  const routeId = String(route?._id || "");
-
-  if (!routeId) {
-    routeAdminError.value = "La ruta no tiene un folio valido.";
-    return;
-  }
-
-  if (!canManageRoutes.value) {
-    routeAdminError.value = "Ingresa la clave interna para completar la ruta.";
-    return;
-  }
-
-  if (route?.status === "completed") {
-    routeAdminFeedback.value = `La ruta ${route.routeLabel || routeId} ya esta completada.`;
-    routeAdminError.value = "";
-    return;
-  }
-
-  const confirmed = window.confirm(`Se marcara la ruta ${route.routeLabel || routeId} como terminada. Deseas continuar?`);
-
-  if (!confirmed) {
-    return;
-  }
-
-  completingRouteId.value = routeId;
-  routeAdminError.value = "";
-  routeAdminFeedback.value = "";
-
-  try {
-    const response = await fetch(`${API_BASE_URL}/internal/admin/routes/${routeId}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        "x-admin-delete-key": adminKey.value.trim(),
-      },
-      body: JSON.stringify({
-        driverId: String(route?.driverId || "").trim(),
-        driverName: String(route?.driverName || "").trim(),
-        routeLabel: String(route?.routeLabel || "").trim(),
-        totalWeight: Number(route?.totalWeight) || 0,
-        status: "completed",
-      }),
-    });
-    const result = await response.json().catch(() => null);
-
-    if (!response.ok) {
-      routeAdminError.value = result?.message || "No se pudo completar la ruta.";
-      return;
-    }
-
-    savedRoutes.value = savedRoutes.value.map((currentRoute) => (
-      currentRoute._id === routeId ? result.route : currentRoute
-    ));
-
-    if (editingRouteId.value === routeId) {
-      editRouteForm.status = "completed";
-    }
-
-    routeAdminFeedback.value = `Ruta ${routeId} marcada como completada.`;
-  } catch (error) {
-    routeAdminError.value = `Error completando ruta: ${error.message}`;
-  } finally {
-    completingRouteId.value = "";
-  }
-}
-
-async function completeAllRoutes() {
+async function completeSelectedRoutes() {
   if (!canManageRoutes.value) {
     routeAdminError.value = "Ingresa la clave interna para completar rutas.";
     return;
   }
 
-  const pendingRoutes = savedRoutes.value.filter((route) => String(route?.status || "").trim().toLowerCase() !== "completed");
+  const pendingRoutes = savedRoutes.value.filter((route) => selectedRouteIds.value.includes(String(route?._id))
+    && String(route?.status || "").trim().toLowerCase() !== "completed");
 
   if (!pendingRoutes.length) {
-    routeAdminFeedback.value = "No hay rutas pendientes por completar.";
+    routeAdminFeedback.value = "Selecciona al menos una guia pendiente por completar.";
     routeAdminError.value = "";
     return;
   }
 
-  const confirmed = window.confirm(`Se marcaran ${pendingRoutes.length} rutas como completadas. Deseas continuar?`);
+  const confirmed = window.confirm(`Se marcaran ${pendingRoutes.length} rutas seleccionadas como completadas. Deseas continuar?`);
 
   if (!confirmed) {
     return;
   }
 
-  completingAllRoutes.value = true;
+  completingSelectedRoutes.value = true;
   routeAdminError.value = "";
   routeAdminFeedback.value = "";
 
   try {
     let completedCount = 0;
     let failedCount = 0;
+    const failedRouteIds = [];
 
     for (const route of pendingRoutes) {
       const routeId = String(route?._id || "");
@@ -282,6 +270,7 @@ async function completeAllRoutes() {
 
         if (!response.ok) {
           failedCount += 1;
+          failedRouteIds.push(routeId);
           console.error("Error completando ruta en lote:", routeId, result?.message || response.statusText);
           continue;
         }
@@ -292,21 +281,24 @@ async function completeAllRoutes() {
         completedCount += 1;
       } catch (error) {
         failedCount += 1;
+        failedRouteIds.push(routeId);
         console.error("Fallo completando ruta en lote:", routeId, error);
       }
     }
 
+    selectedRouteIds.value = failedRouteIds;
+
     if (failedCount === 0) {
-      routeAdminFeedback.value = `Se completaron ${completedCount} rutas correctamente.`;
+      routeAdminFeedback.value = `Se completaron ${completedCount} guias seleccionadas correctamente.`;
       return;
     }
 
     routeAdminError.value = `Se completaron ${completedCount} rutas y ${failedCount} fallaron.`;
     routeAdminFeedback.value = "Algunas rutas quedaron pendientes. Revisa la lista y vuelve a intentar.";
   } catch (error) {
-    routeAdminError.value = `Error completando rutas: ${error.message}`;
+    routeAdminError.value = `Error completando las guias seleccionadas: ${error.message}`;
   } finally {
-    completingAllRoutes.value = false;
+    completingSelectedRoutes.value = false;
   }
 }
 
@@ -383,11 +375,18 @@ async function deleteRoute(route) {
               {{ routeAdminLoading ? "Cargando..." : "Ver rutas guardadas" }}
             </button>
             <button
-              class="admin-button secondary-admin-button"
-              :disabled="routeAdminLoading || completingAllRoutes || !canManageRoutes || !savedRoutes.some((route) => String(route?.status || '').trim().toLowerCase() !== 'completed')"
-              @click="completeAllRoutes"
+              class="route-secondary-button"
+              :disabled="routeAdminLoading || completingSelectedRoutes || selectableRouteIds.length === 0"
+              @click="toggleSelectAllRoutes"
             >
-              {{ completingAllRoutes ? "Completando..." : "Completar todas las rutas" }}
+              {{ allPendingRoutesSelected ? "Deseleccionar todas" : `Seleccionar todas (${selectableRouteIds.length})` }}
+            </button>
+            <button
+              class="admin-button secondary-admin-button"
+              :disabled="routeAdminLoading || completingSelectedRoutes || !canManageRoutes || selectedRoutesCount === 0"
+              @click="completeSelectedRoutes"
+            >
+              {{ completingSelectedRoutes ? "Completando..." : `Completar seleccionadas (${selectedRoutesCount})` }}
             </button>
           </div>
         </div>
@@ -406,22 +405,42 @@ async function deleteRoute(route) {
           {{ routeAdminFeedback }}
         </div>
 
-        <div v-if="savedRoutes.length" class="saved-routes-list">
-          <article v-for="savedRoute in savedRoutes" :key="savedRoute._id" class="saved-route-item">
+        <div v-if="savedRoutes.length" class="input-grid input-grid-meta admin-grid route-filters">
+          <div class="field-group">
+            <label for="companyFilter">Buscar por empresa</label>
+            <input id="companyFilter" v-model="companyFilter" type="search" placeholder="Nombre de la empresa" />
+          </div>
+          <div class="field-group">
+            <label for="guideNumberFilter">Buscar por numero de guia</label>
+            <input id="guideNumberFilter" v-model="guideNumberFilter" type="search" placeholder="Numero de guia" />
+          </div>
+        </div>
+
+        <div v-if="filteredRoutes.length" class="saved-routes-list">
+          <article v-for="savedRoute in filteredRoutes" :key="savedRoute._id" class="saved-route-item">
             <div class="driver-table-header saved-route-header">
               <div>
                 <strong>{{ savedRoute.routeLabel }}</strong>
                 <p class="saved-route-meta">{{ formatDate(savedRoute.createdAt) }} · {{ savedRoute.driverName || savedRoute.driverId }}</p>
               </div>
+              <label v-if="savedRoute.status !== 'completed'" class="saved-route-select">
+                <input
+                  v-model="selectedRouteIds"
+                  type="checkbox"
+                  :value="String(savedRoute._id)"
+                  :disabled="completingSelectedRoutes || deletingRouteId === savedRoute._id"
+                />
+                Seleccionar para completar
+              </label>
               <span class="saved-route-status">{{ savedRoute.status }}</span>
             </div>
 
             <div class="summary-strip summary-strip-results">
               <span><strong>Folio:</strong> {{ savedRoute._id }}</span>
+              <span><strong>Guia(s):</strong> {{ getGuideNumbers(savedRoute) }}</span>
               <span><strong>Chofer:</strong> {{ savedRoute.driverId }}</span>
               <span><strong>Clientes:</strong> {{ savedRoute.uniqueClientCount }}</span>
               <span><strong>Peso:</strong> {{ savedRoute.totalWeight }}</span>
-              <span v-if="savedRoute.loadGuide"><strong>Total pedidos:</strong> $ {{ Number(savedRoute.loadGuide.totalAmount || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</span>
             </div>
 
             <div class="saved-route-actions">
@@ -431,21 +450,14 @@ async function deleteRoute(route) {
               </button>
               <button
                 class="route-secondary-button"
-                :disabled="completingRouteId === savedRoute._id || deletingRouteId === savedRoute._id"
+                :disabled="completingSelectedRoutes || deletingRouteId === savedRoute._id"
                 @click="startRouteEdit(savedRoute)"
               >
                 {{ editingRouteId === savedRoute._id ? "Editando" : "Editar ruta" }}
               </button>
               <button
-                class="admin-button"
-                :disabled="savedRoute.status === 'completed' || completingRouteId === savedRoute._id || deletingRouteId === savedRoute._id"
-                @click="completeRoute(savedRoute)"
-              >
-                {{ completingRouteId === savedRoute._id ? "Completando..." : savedRoute.status === "completed" ? "Ruta completada" : "Completar ruta" }}
-              </button>
-              <button
                 class="route-danger-button"
-                :disabled="deletingRouteId === savedRoute._id || completingRouteId === savedRoute._id"
+                :disabled="deletingRouteId === savedRoute._id || completingSelectedRoutes"
                 @click="deleteRoute(savedRoute)"
               >
                 {{ deletingRouteId === savedRoute._id ? "Eliminando..." : "Eliminar ruta" }}
@@ -470,13 +482,6 @@ async function deleteRoute(route) {
                   <label>Peso total</label>
                   <input v-model="editRouteForm.totalWeight" type="number" min="0" step="0.01" />
                 </div>
-                <div class="field-group">
-                  <label>Estado</label>
-                  <select v-model="editRouteForm.status" class="route-select">
-                    <option value="active">active</option>
-                    <option value="completed">completed</option>
-                  </select>
-                </div>
               </div>
 
               <div class="saved-route-actions">
@@ -487,6 +492,10 @@ async function deleteRoute(route) {
               </div>
             </form>
           </article>
+        </div>
+
+        <div v-else-if="savedRoutes.length && (companyFilter || guideNumberFilter)" class="warning-inline">
+          No hay rutas que coincidan con esos filtros.
         </div>
 
         <div v-else-if="!routeAdminLoading" class="warning-inline">
@@ -665,6 +674,10 @@ async function deleteRoute(route) {
   margin-top: 1rem;
 }
 
+.route-filters {
+  margin-bottom: 0.75rem;
+}
+
 .saved-routes-list {
   display: grid;
   gap: 1rem;
@@ -680,6 +693,22 @@ async function deleteRoute(route) {
 
 .saved-route-header {
   align-items: flex-start;
+}
+
+.saved-route-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: rgba(243, 246, 251, 0.86);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.saved-route-select input {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0;
+  accent-color: #34d399;
 }
 
 .saved-route-status {

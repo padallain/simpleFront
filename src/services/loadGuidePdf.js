@@ -12,7 +12,7 @@ const dateLabel = (value) => String(value || '').split('-').reverse().join('/');
 export function createLoadGuidePdf(guide, route = {}) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const guideLists = guide.subGuides?.length ? guide.subGuides : [guide];
-  const { totalAmount } = summarizeLoadGuide(guide);
+  const { orders: guideOrders } = summarizeLoadGuide(guide);
   const margin = 12;
   const width = 186;
   const bottom = 278;
@@ -70,17 +70,16 @@ export function createLoadGuidePdf(guide, route = {}) {
   };
   text('GUIA DE CARGA', { bold: true, size: 16, gap: 6 });
   text(`Ruta: ${route.routeLabel || guide.number || route.routeId || ''}`, { bold: true });
-  text(`Fecha: ${dateLabel(guide.date)}    Pedidos: ${orders.length}`);
+  text(`Fecha: ${dateLabel(guide.date)}    Pedidos: ${guideOrders.length}`);
   text(`Chofer: ${route.driverName || route.driverId || ''}`);
   text(`Peso total: ${format(route.totalWeight)} kg`);
   for (const companyGuide of guideLists) {
-    const { orders, totalAmount: companyTotal } = summarizeLoadGuide(companyGuide);
+    const { orders } = summarizeLoadGuide(companyGuide);
     const companyName = companyGuide.companyName || orders[0]?.companyName || orders[0]?.company || 'Sin empresa registrada';
     text(`${companyName} | GUIA ${companyGuide.number || guide.number || ''}`, { bold: true, size: 11, gap: 2 });
-    table(['#', 'COD. CLIENTE', 'CLIENTE', 'EMPRESA', 'DOCUMENTO', 'FECHA PEDIDO', 'MONTO $'],
-      [8, 22, 43, 30, 31, 25, 27],
-      orders.map((order, index) => [index + 1, order.clientId, order.clientName || order.clientId, order.companyName || order.company || companyName, order.orderNumber, dateLabel(order.date) || '-', format(order.total, 2)]),
-      ['', '', 'TOTAL DE LA GUIA', '', '', '', format(companyTotal, 2)]);
+    table(['#', 'COD. CLIENTE', 'CLIENTE', 'EMPRESA', 'DOCUMENTO', 'FECHA PEDIDO'],
+      [8, 22, 48, 38, 35, 35],
+      orders.map((order, index) => [index + 1, order.clientId, order.clientName || order.clientId, order.companyName || order.company || companyName, order.orderNumber, dateLabel(order.date) || '-']));
   }
   if (route.routeComment) text(`Observaciones: ${route.routeComment}`);
   ensure(26);
@@ -92,7 +91,7 @@ export function createLoadGuidePdf(guide, route = {}) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(40, 40, 40);
-    doc.text(`${dateLabel(guide.date)} | Total pedidos $ ${format(totalAmount, 2)}`, margin, 288);
+    doc.text(`Guia de carga | ${dateLabel(guide.date)}`, margin, 288);
     doc.text(`Pagina ${page} / ${pages}`, 198, 288, { align: 'right' });
   }
   return doc;

@@ -1219,7 +1219,7 @@ watch(
 
           <div class="actions-grid">
             <button class="secondary-button action-button" type="button" @click="startRouteEditing">
-              Personalizar orden
+              Editar ruta
             </button>
             <button class="secondary-button action-button" type="button" @click="downloadRouteGpx">
               Descargar GPX exacto
@@ -1245,7 +1245,7 @@ watch(
         </div>
 
         <div class="driver-card map-card">
-          <div class="map-editor-layout">
+          <div class="map-editor-layout" :class="{ 'map-editor-layout-editing': editingRoute }">
             <div class="map-pane">
               <RouteOsmMap
                 title="Mapa OSM de la ruta"
@@ -1255,9 +1255,12 @@ watch(
                 :stops="routeMapStops"
                 :canvas-min-height="640"
               />
+              <button v-if="!editingRoute" class="secondary-button map-edit-button" type="button" @click="startRouteEditing">
+                Editar ruta
+              </button>
             </div>
 
-            <div class="editor-pane">
+            <div v-if="editingRoute" class="editor-pane">
               <div class="section-heading">
                 <strong>Modificar orden de la ruta</strong>
                 <span>Puedes mover las paradas y guardar tu version o volver a la ruta recomendada por el sistema.</span>
@@ -1498,14 +1501,6 @@ watch(
                 </div>
               </div>
 
-              <div v-else class="editor-panel">
-                <p class="editor-help">Activa la edicion para reorganizar clientes desde este mismo bloque del mapa.</p>
-                <div class="editor-actions">
-                  <button class="secondary-button" type="button" @click="startRouteEditing">
-                    Editar orden en este mapa
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -2195,14 +2190,22 @@ watch(
 
 .map-editor-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   align-items: start;
+}
+
+.map-editor-layout-editing {
+  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 1fr);
 }
 
 .map-pane,
 .editor-pane {
   min-width: 0;
+}
+
+.map-edit-button {
+  margin-top: 1rem;
 }
 
 .editor-pane {
