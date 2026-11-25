@@ -260,7 +260,7 @@ function cloneStops(stops) {
 
 function resolveSessionDriverId() {
   const user = sessionUser.value || {};
-  return String(user.username || user.email || user.id || "").trim();
+  return String(user.driverId || user.username || user.email || user.id || "").trim();
 }
 
 const dispatchedCount = computed(() =>
@@ -1095,7 +1095,9 @@ onMounted(async () => {
   }
 
   const sessionDriverId = resolveSessionDriverId();
-  const nextDriverId = prefilledDriverId || sessionDriverId;
+  const nextDriverId = sessionUser.value?.role === "chofer"
+    ? sessionDriverId
+    : prefilledDriverId || sessionDriverId;
 
   if (!nextDriverId) {
     return;
@@ -1136,12 +1138,12 @@ watch(
       <div class="driver-hero">
         <p class="driver-kicker">Ruta del chofer</p>
         <h1>Consulta tu ruta asignada</h1>
-        <p class="driver-copy">Tu ID se toma de la sesion cuando esta disponible. Tambien puedes consultarlo manualmente para ver la ruta actual y los clientes pendientes.</p>
+        <p class="driver-copy">Tu ruta se consulta usando el usuario de tu sesion y solo puedes acceder a las guias que tienes asignadas.</p>
       </div>
 
       <div class="driver-card">
         <div class="driver-search-row">
-          <input v-model="driverId" type="text" placeholder="Ingresa tu ID de chofer" class="driver-input" @keyup.enter="loadDriverRoute" />
+          <input v-model="driverId" type="text" :readonly="sessionUser?.role === 'chofer'" placeholder="ID de chofer" class="driver-input" @keyup.enter="loadDriverRoute" />
           <button class="driver-button" :disabled="loading" @click="loadDriverRoute">
             {{ loading ? "Buscando..." : "Ver mi ruta" }}
           </button>
