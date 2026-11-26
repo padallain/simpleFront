@@ -723,6 +723,7 @@ async function saveRouteCustomization() {
       body: JSON.stringify({
         stops: editableStops.value.map(stop => ({ clientId: stop.clientId, sucursal: stop.sucursal || '', stopKey: getStopKey(stop) })),
         priorityStop: selectedPriorityStop(),
+        recalculatePriority: false,
       }),
     });
     const result = await response.json().catch(() => null);
@@ -733,6 +734,7 @@ async function saveRouteCustomization() {
     }
 
     syncRouteCollection(result?.route || routeData.value);
+    cancelRouteEditing();
     feedback.value = "La ruta personalizada se guardo correctamente para este chofer.";
     shareFeedback.value = "Ruta guardada. Puedes copiar el mensaje para el chofer.";
   } catch (error) {

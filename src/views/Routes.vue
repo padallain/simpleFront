@@ -1252,6 +1252,16 @@ async function makeRoute({ previewOnly = false } = {}) {
       return;
     }
 
+    const omittedDetails = Array.from(new Set((Array.isArray(result?.notFoundIds) ? result.notFoundIds : [])
+      .map(value => String(value))))
+      .concat(paradas.value.filter(stop => stop.notFound).map(stop => `${stop.parada}${stop.sucursal ? ` (${stop.sucursal})` : ''}`))
+      .filter((value, index, values) => values.indexOf(value) === index);
+    if (omittedDetails.length) {
+      paradas.value = paradas.value.filter(stop => !stop.notFound);
+      addStopStatusType.value = 'warning';
+      addStopStatus.value = `Se omitieron estos clientes o sedes: ${omittedDetails.join(', ')}. Ya fueron sacados de la ruta.`;
+    }
+
     serverResponse.value = result;
     if (creatingGuide.value && result?.savedRoute?.routeId) {
       editingGuideId.value = String(result.savedRoute.routeId);
